@@ -1,0 +1,423 @@
+# 다음 세션 재개 안내
+
+마지막 갱신: 2026-10-15 (용어 LMM → LLM). PC를 다시 켠 뒤 이 문서만 보고 이어갈 수 있도록 쓴다.
+
+## 0-00000000000000000000000. 2026-10-15: 용어 LMM → LLM — 다음 세션은 여기부터
+
+**한 일**
+- 이유: 파이프라인은 텍스트 입력 → 텍스트 출력이라 LMM(멀티모달)이 아니라 LLM 이 맞다.
+- Confluence (부모 3692396550): ⑪ 3719496070 · ⑫ 3719430326 제목을 "LLM + OpenAI API: …" · "LLM → ROS 2 Task Pipeline: …" 으로 (v3), 환경 설정 3692331054 본문 2곳 (v30). 웹 수정이 덮이지 않도록 md 재게시가 아니라 게시본 storage 에서 단어만 치환. 소개 3692331022 는 사용자가 이미 웹에서 고쳐 둠 (v18). 16 페이지 전체 제목·본문 LMM 0 확인.
+- 그림: draw 스크립트 7개 · render_lesson12/13_terminals 의 LMM → LLM, 다시 그려 바뀐 png 19장 중 페이지가 참조하는 18장을 같은 파일명으로 재첨부 (setup_modules.png 는 어느 페이지에도 없음).
+- 로컬 원고 intro_curriculum.md · setup_usage.md · lesson12_lmm.md, README.md, lessons/08_lmm/README.md 도 치환. 커밋 7a41cc6 (push 함).
+- 일부러 둔 것: 폴더 `lessons/08_lmm` · 파일명 `lesson12_lmm.md` · `intro_lmm.png` 등 (페이지에 경로가 적혀 있음), 코드 주석 · .action/.msg 주석 · 이 문서의 옛 기록 · promo/compose.py.
+
+**다음**: ⑭ Final Mission (`examples/m5_task_plan/04_final_mission.py` 기반, 폴더 `lessons/10_final_project`). 그 뒤 lessons README · INSTALL.md · check_env.sh.
+
+## 0-0000000000000000000000. 2026-10-13: sim_config.yaml 실행 설정 + minimal 프로파일
+
+**한 일**
+- 작업 공간 맨 위 `sim_config.yaml`: `warehouse.launch.py` 가 실행할 때마다 읽음 (wrapper · `ros2 launch` 공통, 빌드 불필요). 우선순위 = 명령줄 인자 > 파일 > profile 기본값. 실행 첫머리에 `[sim_config]` 두 줄로 적용 값 출력. `config:=PATH` · `$MOBILE_OPENARM_CONFIG` 로 다른 파일.
+- 프로파일 3개: full / lite(기본) / minimal. minimal = 뷰어 로봇을 충돌 형상으로 (`--viewer-simple-meshes`: 시각 메시를 group 2→3 으로 옮기고 CameraRig 는 group 3 도 그림, 충돌 형상 rgba 불투명) + 카메라 그림자 끔 (`--no-camera-shadows`) + RViz 10 FPS. 내장 그래픽 1280x720: full 19 · lite 121 · minimal 301 FPS, 카메라 한 장 46 → 6 ms.
+- `ros2 launch` 를 그대로 써도 동작: 시뮬레이터를 `$VIRTUAL_ENV` python 으로 띄움 (전에는 /usr/bin/python3 로 떠서 mujoco 없음 → 죽음; ros2launch 함수가 필요했음).
+- 종료 안정화: Ctrl+C 가 프로세스 그룹 + launch 로 두 번 와서 teardown 이 끊기던 것 (KeyboardInterrupt → munmap abort) → teardown 중 SIGINT 무시. 이후 GL 컨텍스트 해제가 뷰어 스레드와 경합 (GLXBadContext · segfault, 약 1/8) → ROS 정리 후 `os._exit(0)` 로 GL 해제 생략. 10/10 깨끗.
+- `scripts/check_gpu.py` minimal 측정 · 권장 문구를 sim_config.yaml 기준으로. 설정 페이지 3692331054 v29 (7절 재구성, 그림 4장 새로/갱신).
+- 확인: pytest 41 passed; minimal + locate:=truth `pick red` 150 s · 슬롯 1.1 cm.
+
+**해결: headless `locate:=vision` 집기 실패 (기존 버그)**
+- 증상: `scripts/dev/run_pick.sh red` (기본 파이프라인 = ArUco + TruthDetector) 가 grasp 에서 "finger stopped at 15 mm" 로 실패, 상자가 밀림.
+- 원인: 깊이 카메라는 상자의 보이는 면까지 잰다. TruthDetector 는 그 점을 그대로 썼다 → 도킹 후 오차 dx -2.4 cm (반 변 2.25 cm) · z +1.3 cm → 손가락 중심이 상자 앞면보다 0.15 cm 앞, 앞 모서리를 스치며 닫힘. YoloDetector3D (수업 ⑨⑩ 명령) 와 예제 05 · 02 는 이미 HALF_DEPTH 만큼 시선 방향으로 보정하고 있었고, TruthDetector 만 빠져 있었다.
+- 고침: HALF_DEPTH 를 labels.py 로 옮겨 TruthDetector 도 같은 보정. 측정 도구: 검출마다 map 오차 · base_footprint 오차를 기록하는 프로브 (도킹 후 dx -2.4 · dy +1.0 cm 로 일정).
+- 확인 (원점에서 전체 운반, locate:=vision): 빨강 lite 5/5 (슬롯 0.5~3.2 cm), 파랑 2.6 cm, 노랑 2.4 cm, 빨강 minimal 1.4 cm, 수업 YOLO 파이프라인 빨강 2.0 cm. 보정 뒤 z 0.812~0.813 (정답 0.810). pytest 41 passed.
+
+## 0-000000000000000000000. 2026-10-12: ⑬ MuJoCo Web Dashboard
+
+**한 일**
+- 새 모듈 `lessons/09_web_dashboard/` (README, server.py, static/index.html · desk.js · desk.css). 04 대시보드(`lessons/04_navigation/dashboard/server.py` RobotState · make_app, `static/app.js`, frame_tap)를 importlib 로 그대로 불러 쓰고, POST /api/say (→ 대화 스레드 → PlanDialogManager → /execute_plan), POST /api/task_cancel, SSE 의 task(chat · steps · feedback · result · cost)를 더함. 04 app.js 는 순찰 버튼이 있을 때만 바인딩하도록 한 줄 가드.
+- **버그 수정 (취소)**: Task Manager 가 /execute_plan · /execute_command 의 cancel 요청을 받아도 cancel_flag 를 안 세워서, 피드백 콜백 안의 "취소됨" 예외가 executor 로 사라지고 계획이 계속 감. `executor.py` on_cancel + call() 의 피드백 relay, `pick_place_server.py` on_cancel → nav.cancel_requested, `nav_client.py` turn · drive 가 취소 시 stop + 예외. 취소 결과 문장 "N단계까지 마치고 취소했습니다." 실측: 취소 → PickPlace 정지 0.4 s (팔 동작 중이면 그 동작 끝까지 약 7 s). 취소 뒤 같은 지령 재실행 5/5 성공. pytest 41 passed.
+- Flask 를 requirements-lecture.txt 에 추가 (apt python3-flask 는 어떤 패키지 의존성도 아니라 새 PC 에 없을 수 있음; 04 순찰 대시보드도 해당).
+- Confluence 새 하위 페이지 3721003209 "MuJoCo Web Dashboard: 브라우저에서 작업 지령" (v1, 부모 3692396550) ← `docs/camp/lesson14_web_dashboard.md` (h3 38) + `lesson14_*.png` 19장. 그림: `python3 docs/camp/draw_lesson14_figures.py --shots 11` (개념 5 + 레이아웃 + 시간 흐름; 화면 캡처는 shot() 으로), 터미널: `python3 docs/camp/render_lesson14_terminals.py`. 캡처 도구 `docs/camp/cdp_capture.py` (headless Chrome DevTools, 패키지 없이 websocket 직접 구현). 데이터 `artifacts/dev/l13dash/` (final/f*.png 185장, sim/tm/server.log, final_*.log).
+- 실측 (최종 녹화): 빨강 5/5 243 s (이동 25 · 확인 <1 · 집기 98 · 이동 43 · 놓기 78), 랙 C 보고 2/2 확인 없이, 되묻기 → 취소 (집기 단계에서 canceled, 나머지 skipped). LLM 합계 $0.005.
+- 광고 영상 2편 (저장소 밖 `/home/pw/mujoco_ros2/promo/pinklab_part2_arm_llm_dashboard.mp4`, 35.4 s): 로봇팔 · LLM · 작업 지령 대시보드. 대시보드로 파랑 5/5 · 랙 C 보고 · 빨강 취소를 새로 실행해 상태를 기록(`promo/state_record.py` → footage2/run.pkl)하고 `promo/replay.py` 로 30 fps 오프라인 재렌더, 편집 `promo/compose2.py`. 사용자 확인 전 (손목 카메라의 forklift 오검출 박스 그대로 둠).
+- 또 오늘: 저사양 PC (lite 에서 뷰어 그림자 끔 · RViz 15 FPS, scripts/check_gpu.py, 설정 페이지 7절), 설치 스크립트 수정 (cffi, warehouse_skills 빌드), 강의 페이지 13개 코드 블록 12 줄 이하로 분할.
+
+**관찰 (고치지 않음 · 사용자 결정)**
+- 계획기 되묻기: "상자 옮겨" → "노란 거" 다음에 기본 목적지를 안 쓰고 "출발 작업대와 도착 작업대를 알려주세요" 로 한 번 더 물음. 오늘 4 번 중 3 번 (모두 앞에 다른 계획이 있었을 때). "픽업대에서 적재대로" 라고 답하면 진행. ⑭ 전에 plan_parser 프롬프트 · context 처리 손볼지 결정.
+- YOLO 가 손목 카메라에 보이는 그리퍼를 forklift 로 검출 → 랙 C 보고가 "지게차 두 대가 보입니다" (실제는 지게차 1 대 · 다른 곳). report 단계가 손목 카메라 검출을 빼거나 YOLO 를 head/base 카메라로 한정할지 결정.
+- 이전부터: LLM 계획기에 세계 상태(상자 위치) 넣을지, llm.yaml 모델(gpt-4.1-mini 유지 중).
+
+**작업 요령 (오늘 배운 것)**
+- `&` 로 띄운 프로세스는 SIGINT 를 무시한 채로 시작한다 (비대화형 bash). 테스트 하네스에서 서버를 끌 때는 SIGTERM. 학생은 전경에서 Ctrl+C 라 문제 없음.
+- cdp_capture 를 kill 하면 Chrome 이 남아 9333 포트를 잡고, 다음 캡처가 옛 페이지(옛 JS)에 붙는다 → 이제 SIGTERM 처리 + 포트 사용 중이면 시작 거부. desk.js 도 서버 재시작(대화 수 감소) 시 대화창을 비움.
+- `pkill -f <패턴>` 은 그 패턴이 든 내 셸까지 죽인다 → `ps -eo pid,cmd | grep "[x]..."` 로 PID 골라 kill.
+- 프레임 고르기: capture 로그의 시각 ↔ tm.log 의 ROS 시각 ↔ server.log 의 POST 시각을 맞춰 프레임 번호로 바꾸면 빠름.
+
+**다음**: ⑭ Final Mission (`examples/m5_task_plan/04_final_mission.py` 기반, 폴더 `lessons/10_final_project`). 그 뒤 lessons README · INSTALL.md · check_env.sh.
+
+## 0-00000000000000000000. 2026-10-10 hand-off (세션 종료)
+
+**상태**
+- ROS 프로세스 · ros2 daemon · task_manager 모두 종료 (task_manager 는 cleanup_ros.sh 가 안 잡아서 PID 로 끔).
+- git: ⑫ · 스크립트 수정 · 이 NEXT.md 는 2026-10-10 hand-off 뒤 커밋 · push 함. 그 묶음:
+  - ⑫: `lessons/08_lmm/05~08*.py`, `lessons/08_lmm/README.md` (⑫ 절), `docs/camp/lesson13_*` (md + png 14), `draw_lesson13_figures.py`, `render_lesson13_terminals.py`
+  - `scripts/publish_confluence.py`: md 가 참조하는 png 를 목록에 없어도 자동 첨부, 없으면 WARNING
+  - 이 NEXT.md
+- Confluence (부모 3692396550, 오늘 만든 것): ⑨ 3719692425 · ⑩ 3719299331 (v3) · ⑪ 3719496070 · ⑫ 3719430326. 15 개 페이지 전부 본문 참조 그림 = 첨부 확인 (빠진 것 0).
+  - 사고: ⑨ · ⑩ 에서 `lesson10_t1.png` · `lesson11_t1.png` 가 첨부 안 됨 (glob `[a-z_]*` 에 숫자 없음). 첨부만 따로 올려 고침 (본문은 안 건드림). 위 스크립트 수정이 재발 방지.
+- 오늘 커밋: 1120747 (⑨ + locate 신선 프레임 + dock timeout 180 s), 522aa4d (⑩ + 마커 '찍힌 시각' + turn/drive sim 시간 제한), ffb5cb6 (⑪).
+
+**사용자에게 남은 결정**
+1. ⑭ 전에 LLM 계획기에 현재 세계 상태(상자 위치)를 넣을지 — 지금은 이미 옮긴 상자도 픽업대로 계획하고 detect 에서 실패.
+2. llm.yaml 모델: gpt-4.1-mini 유지 중 (API 에 gpt-5.x 도 있음). 바꾸면 pricing 도 같이.
+3. 이전부터: ⑥ 좌우 오가는 현상, ① 옛 그림 정리.
+
+**열린 일 (기술)**
+- dock(): 마커 하나만 보이고 쌍 측정이 한 번도 없으면 timeout 까지 기다림 (탐색 없음).
+- 계획기: "상자 옮겨" → "빨간 거" 뒤 기본 목적지를 안 쓰고 다시 묻는 경우 있음 (1 회 관찰).
+- 대화 페이지 캡처 중 ⑩ 빨강 캡처 첫 두 줄 "map (no TF)" (TF 대기 추가 전 출력).
+
+**다음 작업 순서**
+- ⑬ MuJoCo Web Dashboard: `lessons/04_navigation/dashboard/` (Flask, SSE, 지도 · 카메라) 에 자연어 지령 입력 → PlanDialogManager → /execute_plan 연결 추가. 캡처는 headless Chrome DevTools (feedback_screen_capture).
+- ⑭ Final Mission (`examples/m5_task_plan/04_final_mission.py` 가 기반, 커리큘럼 폴더명 10_final_project).
+- 그 뒤 lessons README · INSTALL.md · check_env.sh.
+
+**작업 요령 (오늘 배운 것)**
+- 셸 환경: `source /opt/ros/jazzy/setup.zsh; source scripts/env.sh` (scripts/mobile_openarm 은 ROS env 없이 부르면 conda.sh 오류).
+- 스택 띄운 직후 Nav2 goal 은 거부될 수 있음 → "Managed nodes are active" 뒤 20 s 기다림.
+- 기록기 `docs/camp/pick_record.py` 는 끝날 때만 저장 → 백그라운드로 띄우고 `wait` 하지 말 것 (한 번 기록을 날림).
+- 이 PC 는 sim 이 실시간의 약 0.72 ~ 0.78 배 (카메라 핸들러 부하), 카메라 영상은 찍힌 뒤 ~2.6 s 에 도착 → 시간 제한 · 신선도는 sim 시각 · header.stamp 로.
+- zsh 에서 `$imgs` 는 단어로 안 쪼개짐 → 배열 `imgs=(...)` + `"${imgs[@]}"`. (이제 publish 스크립트가 자동 첨부하므로 목록은 생략 가능.)
+- matplotlib 문자열에 `$` 가 두 개면 수식으로 바뀜 → `\$`.
+
+## 0-0000000000000000000. 2026-10-10: ⑫ LMM → ROS 2 Task Pipeline 페이지
+
+**한 일**
+- `lessons/08_lmm/` 에 05_plan · 06_plan_accuracy · 07_run_plan · 08_text_mission 추가 (README 에 ⑫ 절). 기존 `commands/plan.py` · `plan_parser.py` · `task_manager.py` · `dialog.py` (PlanDialogManager) 위에 얹음. 05 기본 문장은 plan_parser 의 few-shot 예시와 겹치지 않게 고름.
+- Confluence 새 하위 페이지 3719430326 "LMM → ROS 2 Task Pipeline: 단계 목록과 Task Manager" (v1, 부모 3692396550) ← `docs/camp/lesson13_task_pipeline.md` + `lesson13_*.png` 14장. 그림: `python3 docs/camp/draw_lesson13_figures.py`, 터미널: `python3 docs/camp/render_lesson13_terminals.py`. 로그: `artifacts/dev/l12/05.log 06.log 08.log 08_run1.log`, 기록 `artifacts/dev/mission_l13.pkl`, `mission_l13b.pkl`.
+- 실측: 계획 20/20 (평균 1.2 s, $0.019). 08 (같은 시뮬레이터에서 두 번): 1 회차 빨강 5/5 237 s + 랙 C 보고 41 s. 2 회차 "상자 옮겨" → 되묻기 → "파란 거 적재대로" → 확인 → "응" → 5/5 244 s (슬롯 5.4 cm, 도킹 잔차 6.6 cm), 이어서 이미 옮긴 빨강 → detect 실패 "1단계까지 마쳤지만 실패했습니다: 2단계(빨간 상자 확인) 실패: 빨간 상자가 카메라에 보이지 않는다" (52 s).
+- git: 커밋 · push 함 (2026-10-10, hand-off 뒤).
+
+**관찰 (고치지 않음)**
+- 1 회차에 "상자 옮겨" → "빨간 거" 다음 LLM 이 기본값(적재대)을 쓰지 않고 "어디로 옮길지" 다시 물음 (plan_parser 규칙은 도착지 없으면 place_table). 그래서 스크립트 줄이 한 칸씩 밀림. 2 회차는 "파란 거 적재대로" 로 장소를 같이 줌.
+- LLM 은 지금 상자 위치를 모른다 → 이미 옮긴 상자도 픽업대로 계획. detect 가 잡음. (⑭ 전에 세계 상태를 프롬프트에 넣을지 결정할 일)
+
+**다음**: ⑬ MuJoCo Web Dashboard (lessons/04_navigation/dashboard 에 Flask 대시보드 있음, 자연어 지령 입력 추가 필요) → ⑭ Final Mission.
+
+## 0-000000000000000000. 2026-10-10: ⑪ LMM + OpenAI API 페이지
+
+**한 일**
+- 새 모듈 `lessons/08_lmm/` (README, 01_hello · 02_structured_command · 03_accuracy · 04_cost_log). 기존 `warehouse_lecture.llm.client.LLM` · `commands/schema.py` (RobotCommand, validate_world) · `commands/parser.py` (SYSTEM + few-shot 4) · `examples/m4_command_dialog/commands_test.yaml` (60 문장) 위에 얹음. 시뮬레이터 불필요.
+- Confluence 새 하위 페이지 3719496070 "LMM + OpenAI API: 자연어 → Structured Command" (v1, 부모 3692396550) ← `docs/camp/lesson12_lmm.md` + `lesson12_*.png` 13장. 그림: `python3 docs/camp/draw_lesson12_figures.py`, 터미널: `python3 docs/camp/render_lesson12_terminals.py` (render_terminal.py 에 width 인자 추가, 기본값 그대로). 데이터: `artifacts/dev/l12/` (01~04.log, acc_run1~3.json, tokens.log).
+- 실측 (gpt-4.1-mini, temperature 0): 60 문장 58 · 59 · 58 (Phase 0 와 같은 두 문장: "주위에 누가 있어?" report→find, "팔 내려서 주행 자세로" transport→home). 문장당 평균 0.95~0.98 s, 회당 $0.035. 명령 한 번 입력 1,327 토큰 = system 592 + few-shot 224 + JSON 스키마 490 + 문장 ~21, 출력 48.
+- 모델 확인: API 에 gpt-4.1-mini 그대로 있음 (gpt-5.x 도 있음). llm.yaml 은 바꾸지 않음. 오늘 API 비용 합계 약 $0.11.
+- git: 커밋 · push 함 (2026-10-10).
+
+**다음**: ⑫ LMM → ROS 2 Task Pipeline (`commands/plan.py`, `plan_parser.py`, `task_manager.py`, examples/m5_task_plan 이 이미 있음).
+
+## 0-00000000000000000. 2026-10-10: ⑩ Navigation + Pick & Place 페이지
+
+**한 일**
+- 새 모듈 `lessons/07_nav_pick_place/` (README.md, transport.py: phase=all goal 하나, 단계마다 TF map 위치 · 달린 거리 출력, 끝에 단계별 표).
+- Confluence 새 하위 페이지 3719299331 "Navigation + Pick & Place: 창고를 가로지르는 운반" (v2, 부모 3692396550) ← `docs/camp/lesson11_nav_pick_place.md` (h3 32개) + `lesson11_*.png` 16장. 그림: `MUJOCO_GL=egl python docs/camp/draw_lesson11_figures.py` (ros env), 터미널: `python3 docs/camp/render_lesson11_terminals.py`. 데이터: `artifacts/dev/transport_red.pkl` (pick_record.py 에 /plan · /amcl_pose 추가), `transport_red_fail1.pkl` (첫 시도 실패), `l11_transport_{red,blue,yellow}.log`.
+- 실측 (기본 spawn, 벽시계): 빨강 256 s · 14.7 m · 슬롯 1.1 cm (오른팔), 파랑 298 s · 4.6 cm (왼팔, 적재대 앞에서 출발), 노랑 258 s · 1.8 cm (왼팔, 축 +0.35 → 10 cm 옆 도킹). Nav2 '도착' 때 실제 거리 13 cm · 7 cm (허용 8 cm 는 AMCL 기준).
+- **버그 수정: `nav_client.py` marker/fixes/wait_markers** — 첫 시도에서 place 쪽 side-step 뒤 도킹이 180 s 멈추고 실패. 원인: 마커 '받은 시각' 으로만 신선도를 봐서, 회전 중 (heading 0° 지날 때) 찍힌 마커 쌍을 정지 뒤 값으로 씀 (turn -0.6°). 실제는 -25° 라 마커 3 이 화면 밖 → dock() 이 쌍을 기다리며 정지. 고침: wait_markers 가 부른 시각 이후 '찍힌' (header.stamp) 영상만 받음, 회전 탐색 중 찾으면 멈추고 다시 잼. 이후 3 회 연속 성공. pytest 41 passed.
+- 페이지의 빨강 캡처는 첫 두 줄이 "map (no TF)" 로 나옴 (캡처는 TF 대기 추가 전 실제 출력, 코드는 고친 뒤).
+- git: 커밋 · push 함 (2026-10-10).
+
+**열린 일 (새로)**
+- (해결) side-step 회전이 90° 대신 79~80° 에서 끝나던 것: 오도메트리 · 사양 문제가 아님. URDF 와 MJCF 의 바퀴 반지름 0.0825 · 간격 0.4288 같고, 브리지 오도메트리는 MJCF 에서 값을 읽음. 오프라인 물리 시험에서 오도메트리 = 실제 (회전 · 직진 비율 1.00, 바퀴가 884 N 중 852 N 지지 → 미끄러짐 없음). 원인 = `nav_client.turn()` · `drive()` 의 벽시계 제한 시간 (90° 는 9.3 s): sim 이 실시간의 0.72 배라 6.5 sim-s 에서 조용히 끊김. 고침: 제한 시간을 sim 시간으로 (+ 시뮬레이터가 멈췄을 때만 쓰는 넉넉한 벽시계 guard, 끊기면 warning). 확인: sim 0.74 배에서 90° → 실제 91.3° · 오도메트리 91.4°, side-step 10 cm → 9.8 cm · heading -0.4°. 회귀: transport.py red 227 s · 슬롯 2.3 cm, deadline warning 0. pytest 41 passed. ⑩ 페이지 v3 (지연 그림 설명 수정, turn 발췌 추가).
+- dock() 은 마커 쌍이 없고 last 가 없으면 timeout 까지 기다린다 (한 마커만 보일 때 탐색 없음).
+
+**다음**: ⑪ LMM + OpenAI API.
+
+## 0-0000000000000000. 2026-10-10: ⑨ Pick & Place 페이지
+
+**한 일**
+- Confluence 새 하위 페이지 3719692425 "Pick & Place: 도킹 · 인식 · 집고 놓기" (v1, 부모 3692396550) ← `docs/camp/lesson10_pick_place.md` (h3 35개: 1 개념 7절 → 2 실행(T1 · 시작 화면 · pick/place 터미널 · 도킹 렌더 · 도킹 그래프 · 카메라 화면 · 잡기/놓기 렌더 · 손가락/높이 그래프 · 단계별 시간 · 실패 · CLI) → 3 코드(run · execute · do_pick · dock · VisionLocator.relative · grasp · place · skills.yaml) → 해 볼 것) + `lesson10_*.png` 21장.
+- 그림: `MUJOCO_GL=egl .venv-mobile-openarm/bin/python docs/camp/draw_lesson10_figures.py` (ros env 필요: mobile_openarm_mujoco.model). 터미널: `python3 docs/camp/render_lesson10_terminals.py`. 기록기 `docs/camp/pick_record.py` (joint_states · /ground_truth · 상자 · /cmd_vel · feedback · TCP · /vision/detections · /vision/markers) → `artifacts/dev/pick_red.pkl`. 근접 그림은 기록한 base · 상자 · 관절을 오프스크린 렌더 (REAR = azimuth 35, 오른쪽 뒤에서 작업대 마커가 보임). 카메라 그림 = head_camera 오프스크린 320×240 + 기록한 YOLO bbox (맞음 확인).
+- 실측: pick 59 s · place 63 s (벽시계), sim 44 s · 51 s, 슬롯 오차 1.7 cm (1차 1.6, CLI 0.9). 마커 쌍 측정은 약 2.6 s 마다 → 서보가 '측정 직후만 전진' 하는 계단 모양 (도킹 그래프).
+- **버그 수정: `locate.py` VisionLocator.relative** 가 마지막 /vision/detections 한 장만 봐서, 도킹 직후 (blind 구간에 찍힌 프레임) "parcel_red not visible" 로 실패 (첫 실행). → 부른 시각 이후 stamp 의 프레임에 label 이 보일 때까지 최대 10 s (벽시계) 대기. 이후 3회 연속 성공, locate 대기 약 3~4 s. pytest 41 passed.
+- **README 오류 수정**: `pick red pick_table --phase place` 는 to_station 기본값 place_table 로 간다 → `pick red pick_table pick_table --phase place` (README · pick_then_place.py docstring · 페이지).
+- 도킹 timeout_s 60 → 180 (위 0-000000000000000) 반영 후 도킹 실패 없음 (pick 3 · place 3).
+- 주의: 스택 띄운 직후 ("Managed nodes are active" 바로 뒤) 보내면 "Nav2 rejected the goal" → 20 s 정도 기다린 뒤 보낼 것.
+- git: 커밋 · push 함 (2026-10-10).
+
+**다음**: ⑩ Nav + Pick & Place.
+
+## 0-000000000000000. 2026-10-10: 열린 일 1·2 결정
+
+- 도킹 타임아웃: `skills.yaml` dock.timeout_s 60 → 180 (사용자 결정, 벽시계 기준 그대로). install 은 symlink 라 재빌드 불필요. 실제 pick 으로 재확인은 아직 안 함.
+- `arm both home`: 코드 · SRDF 는 그대로 두고 (⑦ 3절 교재), `lessons/05_moveit/README.md` · `ee_control.py` 안내에서 home 을 "MuJoCo 실행 실패" 로 표시. ⑧ 페이지는 home 언급 없음 → 재게시 불필요.
+- 남은 열린 일: ⑥ 좌우 오가는 현상, ① 옛 그림 정리. 다음: ⑨ Pick & Place.
+
+## 0-00000000000000. 2026-10-02 hand-off (PC 끄기 전) — 다음 세션은 여기부터
+
+**상태**
+- ROS 프로세스 · ros2 daemon 모두 종료. 시뮬레이터 안 떠 있음.
+- git: 아래 묶음을 2026-10-02 에 한 커밋으로 커밋 · push 함 ("Add MoveIt and EE-control lesson pages; tighten IK joint goal tolerance"). 작업 트리 깨끗.
+  - 수정: `src/warehouse_skills/warehouse_skills/moveit_client.py` (JointConstraint ±0.001), `src/warehouse_lecture/warehouse_lecture/ros/geometry.py` (map 프레임 없으면 경고 없이 건너뜀), `lessons/05_moveit/README.md` (오차 약 1 mm), 이 NEXT.md.
+  - 새 파일: `docs/camp/lesson08_*` · `lesson09_*` (md 2 + png), `draw_lesson08_figures.py`, `draw_lesson09_figures.py`, `render_lesson08_terminals.py`, `render_lesson09_terminals.py`, `arm_record.py`, `ik_probe.py`.
+- Confluence: ⑦ 3706617877 v1, ⑧ 3706552350 v2 (둘 다 웹 수정 없음 확인 시점 기준). 웹에서 고쳤으면 다시 게시 전에 md 로 되받기.
+- 원본 데이터 (저장소 밖 · artifacts/ 는 gitignore): `artifacts/dev/lesson08_shots/`, `lesson09_shots/`, `arm_ready.pkl`, `ee_demo.pkl`(±0.001 재기록), `ee_pose.pkl`(±0.01 때), `ik_probe.pkl`.
+
+**사용자에게 남은 결정 · 열린 일**
+1. 도킹 타임아웃: `nav_client.dock()` 의 `timeout_s: 60` 이 벽시계 기준이라 비전이 느리면 (마커 쌍 측정 60 s 에 15번) 실패. 노랑 1회 발생, 재시도 성공. 수강생 PC 편차를 생각하면 sim 시간 기준으로 바꾸거나 측정 없을 때도 천천히 전진하는 방안 검토.
+2. `arm both home` 은 MuJoCo 볼록 껍질 충돌로 실행 실패 → README · ee_control.py 안내에서 home 을 뺄지 (⑦ 페이지 3절은 이 실패를 교재로 씀).
+3. ⑥ 두 번째 목표에서 좌우로 오가는 현상, ① 옛 그림 정리 (이전부터 미정).
+
+**다음 작업 순서 (커리큘럼)**
+- ⑨ Pick & Place 페이지 (`lessons/06_pick_place/pick_then_place.py`, `./scripts/mobile_openarm start spawn:=pick_table camera_depth:=true locate:=vision` + `LECTURE_HANDLERS=...ArucoDetector,...YoloDetector3D`). 같은 방식: 개념 그림 → 명령마다 터미널 캡처 + 오프스크린 렌더(기록한 /joint_states) → 코드 발췌.
+- 그 뒤 ⑩ Nav + Pick & Place → ⑪ LMM → ⑫ Task Manager → ⑬ 대시보드(자연어 지령 입력 추가 필요) → ⑭ Final Mission. 그리고 lessons README · INSTALL.md · check_env.sh.
+
+**작업 요령 (이번 세션에서 배운 것)**
+- 시뮬레이터 창은 `xdotool search --class '^MuJoCo$'` / `--class '^rviz2$'` 로만 찾기 (`--name MuJoCo` 는 사용자 Chrome 의 Confluence 탭을 잡는다).
+- 로봇 근접 그림은 뷰어 캡처보다 오프스크린 렌더가 낫다: `MUJOCO_GL=egl` + venv 파이썬, azimuth 270 = 왼쪽 옆, 180 = 정면.
+- `pick <색> [from_station] [to_station]` — 두 번째 인자는 출발 작업대.
+- ROS 명령을 이 셸에서 돌릴 때는 domain 43 · cyclonedds 환경이 필요 (scratchpad 의 ros.sh 와 같은 설정: `source scripts/env.sh` 후 `ROS_DOMAIN_ID=43 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI=$(cat src/mobile_openarm_bringup/config/cyclonedds.xml)`).
+
+## 0-0000000000000. 2026-10-02: ⑧ Arm · End-Effector 페이지
+
+**한 일**
+- Confluence 새 하위 페이지 3706552350 "Arm · End-Effector Control: IK · Cartesian · 그리퍼" (v1) ← `docs/camp/lesson09_ee_control.md` (h3 42개: 1 개념 8절(관절↔작업 공간 · base_footprint/TCP 실측 · GRASP_FORWARD · IK 흐름 · IK 해 4개 렌더 · 도달 범위 지도 · pose vs Cartesian · 그리퍼 판정) → 2 실행(T1 · 시작 화면 · where/named · ik · pose · cartesian · TCP 경로 그래프 · pose 오차 원인 · gripper · 손가락 간격 그래프 · 실패 2종 · demo) → 3 코드(make_pose · solve_ik · move_pose/move_joints · move_cartesian · gripper · 브리지 그리퍼 판정 · skills.yaml) → 해 볼 것) + `lesson09_*.png` 25장 + `lesson08_t1_moveit.png` 재사용.
+- 그림: `MUJOCO_GL=egl .venv-mobile-openarm/bin/python docs/camp/draw_lesson09_figures.py`. 로봇 근접 그림은 기록한 /joint_states 를 MuJoCo 오프스크린으로 렌더 (뷰어 캡처는 시작 화면만). 카메라: azimuth 270 = 왼쪽 옆 (180 = 정면; 정면은 손이 카메라 쪽이라 몸통과 겹쳐 보임). 터미널: `python3 docs/camp/render_lesson09_terminals.py`.
+- 데이터: `docs/camp/arm_record.py` 에 TCP(TF 20 Hz) 기록 추가 → `artifacts/dev/ee_demo.pkl`, `ee_pose.pkl`; `docs/camp/ik_probe.py` (`./scripts/mobile_openarm exec python docs/camp/ik_probe.py`) → `artifacts/dev/ik_probe.pkl` (y=0.20 x-z 5 cm 격자 도달 범위, 같은 TCP 의 서로 다른 IK 해 6개).
+- 실측: pose 오차 12.2 mm / 3.5 mm (두 번). 원인 = move_joints 의 JointConstraint ±0.01 rad (계획 끝 관절이 IK 해와 ~0.01 rad 다름; MuJoCo 추종은 0.005 rad 안). 고치지 않음 — '해 볼 것'에 0.001 실험으로 넣음. pose 중 TCP 가 y 0.16→0.40→0.20 으로 크게 돈다(관절 공간 계획). z=0.95 에서 도달 x 0.35~0.60. 그리퍼 close→open 약 0.1 s (sim).
+- 사고: 창 검색 `xdotool search --name '^MuJoCo'` 가 사용자 Chrome(Confluence 'MuJoCo + ROS2…' 탭)을 잡아 창 크기 · 위치 변경, Tab 2번 · 휠 스크롤을 보냄. **앞으로 시뮬레이터 창은 `--class '^MuJoCo$'` · `--class '^rviz2$'` 로 찾을 것.**
+
+- **후속 (사용자 승인): `moveit_client.py` move_joints 의 JointConstraint ±0.01 → ±0.001 rad.** 같은 목표 7회 실측: ±0.01 평균 6.0 mm (2.3~12.2) → ±0.001 평균 1.1 mm (0.8~1.5). 다른 위치 (0.40, 0.25, 1.05) 1.2 mm, (0.55, 0.15, 0.85) 3.6 mm. cartesian 5 cm 도 정확히 5.0 cm 로 (전 4.6). ⑦ joint_goal.py · executor.py 의 이름 자세용 0.01 은 그대로.
+- 회귀 (±0.001): pytest 41 passed; ⑨ 예제 red 집고 다시 놓기 성공 2.2 cm (전 3.7); 원점에서 `pick red` 149 s 1.5 cm, `pick blue` 182 s 3.0 cm, `pick yellow` 1회차 dock 실패("docking timed out while the markers were visible", 60 s 동안 마커 쌍 측정이 15번만 들어와 대부분 정지) → 재시도 130 s 1.2 cm. dock 은 MoveIt 을 안 거치므로 수정과 무관해 보이나 증명 안 됨 → **열린 일: 도킹 타임아웃(벽시계 60 s) 이 비전 지연에 약함**. 주의: `pick <색> <from_station> <to_station>` — 두 번째 인자는 출발 작업대 (처음에 `pick red place_table` 로 잘못 줘서 실패한 실행 3개는 무효).
+- ⑧ 페이지 v2 재게시: demo 재기록(±0.001, 그림 시각 상수 갱신), pose · cartesian · demo 터미널 캡처 교체, 'pose 오차' 그림 = 0.01 vs 0.001 막대 그래프, 코드 발췌 0.001, 해 볼 것 = 0.01 · 0.05 로 넓혀 보기. 그리퍼 근접 그림 캡션은 데이터에서 계산 (새 시뮬레이터는 손가락 초기 25 mm). lessons/05_moveit/README 의 '오차 약 6 mm' → '약 1 mm'.
+
+**다음**: ⑨ Pick & Place (`lessons/06_pick_place/pick_then_place.py`, `start spawn:=pick_table`).
+
+## 0-000000000000. 2026-10-02 (다음 세션): ⑦ MoveIt + MuJoCo 페이지
+
+**한 일**
+- 로그인 후 확인: `moveit` 모드로 띄운 MuJoCo · RViz 창이 Normal 상태로 뜸 (최소화 문제 해결됨).
+- Confluence 새 하위 페이지 3706617877 "MoveIt + MuJoCo: 양팔 계획과 실행" (v1) ← `docs/camp/lesson08_moveit.md` (h3 41개: 1 개념 6절 → 2 실행(moveit 트리 · T1 · 시작 화면 · node/action list · action info/service · arm 명령 · 전/후 · T1 로그 · 계획 vs 실제 그래프 · RViz 패널 · RViz 실행 · Scene Objects) → 3 home 실패 → 4 코드(joint_goal · SRDF · config.py · controllers yaml · actions goal/update · trajectory.sample · bridge 인터록) → 해 볼 것) + `lesson08_*.png` 27장.
+- 그림: `.venv-mobile-openarm/bin/python docs/camp/draw_lesson08_figures.py` (mujoco 필요 → venv 파이썬), 터미널: `python3 docs/camp/render_lesson08_terminals.py`. 원본 캡처 `artifacts/dev/lesson08_shots/` (MuJoCo 창 `import -window`, 뷰어 Tab/Shift+Tab 으로 패널 숨김, 오른쪽 더블클릭으로 로봇 중심, 휠 아래=확대), 궤적 기록 `docs/camp/arm_record.py` → `artifacts/dev/arm_ready.pkl` (계획 21점 1.99 s, 실제와 최대 0.001 rad).
+- **발견: `arm both home` 은 MoveIt 계획 성공 · MuJoCo 실행 실패** (status=6, error_code=-4, GOAL_TOLERANCE_VIOLATED). 원인: MuJoCo 는 메시마다 볼록 껍질로 충돌 계산 → 몸통 `body_link0_symp.stl` (실제 기둥 폭 6 cm, 껍질 부피 5.6배) 의 껍질에 두 손이 2.2 cm 겹침. MoveIt(FCL) 은 메시 그대로라 충돌 없음. 페이지 3절의 교재로 씀 (코드는 안 고침). README/ee_control.py 는 아직 home 을 쓸 수 있는 자세로 안내함 → 고칠지 사용자 결정.
+
+**열린 일 (추가)**
+- (해결) moveit · drive 모드의 `TF base_camera_optical_frame -> map failed` 반복 경고: `warehouse_lecture/ros/geometry.py` MapTransformer.to_map 이 map 프레임이 TF 에 아직 없으면(`buffer._frameExists`) 경고 없이 None 을 돌려주고 info 1회만 남김. 확인: moveit 모드 60 s 경고 0건, nav 모드 /vision/detections 는 frame_id map · has_position true 그대로 (nav 시작 때 extrapolation 경고 1건은 원래 있던 것).
+- 다음: ⑧ Arm / End-Effector Control 페이지 (`lessons/05_moveit/ee_control.py` where/ik/pose/cartesian/gripper/demo), ⑨ Pick & Place.
+- git: 이번 작업 커밋 안 함 (새 파일: docs/camp/lesson08_*, draw_lesson08_figures.py, render_lesson08_terminals.py, arm_record.py).
+
+## 0-00000000000. 2026-10-02 밤 hand-off (로그아웃 전) 
+
+**상태**
+- 모든 ROS 프로세스 · ros2 daemon · headless Chrome 종료, /dev/shm 정리. git 작업 트리: 이 NEXT.md 수정만 (커밋 안 함). 마지막 push = 00a48b8.
+- 오늘 push 한 커밋: 7fe6adc (순찰 막힘: ObstacleFootprint.scale + patrol 워치독) → c918950 (통합 Demo 페이지 · 대시보드 사람 수 · ⑥ 속도 그래프) → 00a48b8 (Confluence 기준 원고 동기화).
+- Confluence 9개 페이지 = docs/camp/*.md 와 일치 (00a48b8 시점). 웹에서 고쳤으면 다시 게시 전에 되받기.
+
+**로그인 후 먼저 확인할 것**
+- GNOME 이 새 창을 최소화(Iconic)로 띄우던 문제 (10/02 오전 xdotool 로 Chrome 창을 만진 뒤부터). 증상: MuJoCo 뷰어 창이 안 보이고 시뮬레이터가 /clock 없이 멈춤 (CPU 100 %). 로그아웃 · 로그인 뒤 `./scripts/mobile_openarm nav moveit:=false` 로 MuJoCo · RViz 창이 정상으로 뜨는지 확인. 안 되면 재부팅.
+- 교훈: 화면 캡처에 xdotool windowclose · windowminimize 쓰지 말 것. 브라우저 캡처는 headless Chrome + DevTools(0-00000000 참고), MuJoCo 화면은 아래 promo_recorder 방식(창 없이 렌더).
+
+**유튜브 쇼츠 홍보 영상 (완성, 사용자 검토 대기)**
+- `/home/pw/mujoco_ros2/promo/pinklab_mujoco_ros2_shorts.mp4` (1080×1920, 30 fps, 30 s, 무음 · 자막, 음악은 업로드 때 YouTube 음원). 저장소 밖.
+- 재편집: `/home/pw/mujoco_ros2/promo/compose.py` (워크스페이스 루트에서 `python ../promo/compose.py out.mp4`, `--still 1.5 4.5 …` 로 미리보기). 원본 장면 `promo/footage/{wide,chase,pick2,mission}` (MuJoCo 1000×1000 렌더, 파일명 = sim 시각), mission.log = 실제 LMM 대화.
+- 촬영 방법: `promo_recorder.py:PromoRecorder` 를 camera_handler 로 (LecturePipeline 상속 → 비전 그대로) `viewer:=false camera_fps:=10`. /dev/shm/promo_shot.json 으로 카메라 지정 (mode track/fixed, distance, azimuth, elevation, orbit, follow_heading). 실제 속도는 비전 부하로 약 3.9 frame/sim-s.
+- 장면: 0-3 s 창고 orbit · 3-6 chase(랙 통로) · 6-8.5 SLAM 지도(wp*.npz) → RViz 순찰 캡처 · 8.5-12.5 pick 근접 · 12.5-18.5 LMM 대화 + 실제 Final Mission 화면(5/5 성공, $0.001) · 18.5-20.5 대시보드 · 20.5-23 수업자료 그림 스크롤 · 23-25.8 커리큘럼 · 25.8-28 장점 4개 · 28-30 youtube.com/@pinklab_studio · pinklab.art.
+- 캠프 일정 · 신청 링크가 정해지면 마지막 장면(scene_cta)만 바꿔 다시 뽑는다.
+
+**열린 일**
+- ⑥ 두 번째 목표에서 목표 방향을 맞추며 좌우로 4 번 오가는 현상 (RotationShim ↔ DWB, 0-000000000) — 조치 여부 미정.
+- 충돌 회피 페이지 수치(1.16/0.30 m)는 옛 설정 값 — 사용자 결정으로 유지.
+- ① 옛 그림 9장(lesson01_why.png 등, _v2 로 대체됨) 저장소에 남음 — 정리 여부 미정. _v2 를 만드는 스크립트는 없음.
+- 다음 커리큘럼 작업: Day 2 MoveIt 페이지들, lessons/ README, INSTALL.md · check_env.sh.
+
+## 0-0000000000. 2026-10-02 밤: GitHub ↔ Confluence 전수 대조 · Confluence 기준 동기화
+
+- 9개 페이지(부모 3692396550)의 코드 발췌 66개 · 경로 · wrapper 명령 · launch 인자 · ros2 run/launch · 첨부를 저장소와 대조 → 코드 쪽 불일치 없음 (줄여 쓴 YAML/한 줄 합치기는 값까지 확인).
+- Confluence 에서 직접 고친 4개 페이지(소개 3692331022, 환경 설정 3692331054, ① 3692920898, ③ 3697442817)의 본문을 md 로 되받음. 변환 결과를 publish_confluence.md_to_storage 로 다시 그려 게시본과 정규화 비교 → 4개 모두 동일. 이미지 alt 는 게시본에 없으므로 기존 md 의 alt 를 재사용.
+- ① 의 `lesson01_*_v2.png` 9장(9/29 밤 Confluence 에 직접 올린 그림, 만든 스크립트 없음)을 docs/camp 로 내려받음. 옛 `lesson01_why.png` 등은 저장소에 남아 있지만 어느 md 도 참조하지 않음.
+- **앞으로**: 페이지를 웹에서 고친 뒤에는 다시 게시하기 전에 반드시 md 로 되받을 것 (그냥 게시하면 웹 수정이 사라진다).
+
+## 0-000000000. 2026-10-02 저녁: ⑥ 속도 그래프 재촬영
+
+- ⑥ 3701866498 의 `lesson05_speed.png` 를 RotationShim 설정으로 다시 찍어 첨부만 갱신 (본문 v2 그대로). 데이터 `artifacts/dev/nav_run_shim.pkl` (goal 1.2 -3.6 0 → /goal_pose (0.02, 0.02, 0) = RViz 2D Goal Pose 와 같은 토픽). `draw_lesson05_figures.speed()` 만 새 파일을 읽고, global_plan · local_costmap 은 옛 nav_run.pkl 그대로.
+- 관찰: 두 번째 목표에서 0.07 m 앞(xy 허용 0.08 m 안)에 선 뒤 목표 방향(0°)을 맞추며 좌우로 4 번 오감 (123° → 34° → 78° → 22° → 120° → -3°, 약 17 s). 옛 DWB 그래프에도 같은 자리에서 2 번 오간 흔적. RotationShim(목표 방향으로 회전)과 DWB(목표 점을 바라봄)가 번갈아 잡는 것으로 보임. 미조치.
+- 이번엔 MuJoCo 뷰어 창이 안 떠서 시뮬레이터가 멈춤(/clock 없음, CPU 100 %) → `viewer:=false rviz:=false` 로 촬영. 오늘 Chrome 창을 xdotool 로 만진 뒤 창 관리자 상태가 이상한 듯 (재로그인 · 재부팅 뒤 확인).
+
+## 0-00000000. 2026-10-02 오후: "전반부 통합 Demo: 창고 순찰과 웹 대시보드" 페이지 신규 (3707076612)
+
+- 원고 `docs/camp/lesson07_patrol.md` (h2 5개: 1 순찰 Demo 5절 → 2 실행 17절 → 3 막혔던 곳(Failed to make progress → RotationShim → 그래도 v=0 → critic 이름) 8절 → 4 코드와 설정 7절 → 5 웹 대시보드 25절(독립: 구성 · 실행 · 캡처 · SSE/MJPEG/frame_tap/스레드 · 코드) + 해 볼 것). 그림 39장: `draw_lesson07_figures.py`(개념 · 실데이터 · 캡처 크롭), `render_lesson07_terminals.py`(9장).
+- 데이터: `artifacts/dev/patrol_run.pkl`(nav_record, 148 s 순찰), `artifacts/dev/patrol_frames/`(MuJoCo+RViz 4 s 간격 캡처, patrol_run.log, t1_nav.log, stall_rec.log), `artifacts/dev/dash_frames/`(대시보드 3.3 s 간격 + done.png, server/patrol/status/SSE 출력).
+- **대시보드 수정**: app.js 가 카메라 2대의 사람 수를 더해 한 명을 '2 명'으로 셌다 → 카메라별 최댓값. (worker_no_helmet_red 가 랙 B 통로 끝에 있어 '안전모 미착용' 이벤트는 정상)
+- 캡처 요령(바뀜): Chrome --app 창은 한 번 닫으면 Iconic 상태로만 다시 떠서 xdotool 로 못 살림 → **headless Chrome + DevTools 스크린샷**: `google-chrome --headless=new --user-data-dir=<scratch> --remote-debugging-port=9333 --window-size=1700,1000 http://localhost:8080` 후 node 스크립트(Page.captureScreenshot, 1700×1000)로 찍음. MJPEG 도 나온다. `--screenshot` 단발 모드는 카메라가 비어 나옴.
+- MuJoCo+RViz 캡처: 창을 xdotool 로 MuJoCo (70,40) 1000×900 · RViz (1075,40) 1250×900, RViz 뷰에서 휠 7칸 축소, `import -window root -crop 2290x975+52+18` 후 (12,8,2272,955) 크롭.
+- v2 (사용자 요청): 3장에서 '그래도 멈춘다 · 원인 2 · param get 2절 · 고친 뒤' 삭제 → 3장 = 증상 → 원인 → 해결(RotationShim). 그림 stall · critic · before_after · cli_param 삭제 (Confluence 첨부도 삭제), FollowPath 발췌 주석 수정. 주의: 증상 터미널 로그는 실제로는 RotationShim 을 넣은 뒤(원인 = ObstacleFootprint.scale) 찍은 것.
+- 커밋 안 함 (app.js 수정 + 원고 · 그림 · 스크립트).
+
+## 0-0000000. 2026-10-02: 순찰 막힘 해결
+
+- RotationShim 설정 시험: 제자리 회전은 해결됐지만 rack_a → rack_b 에서 여전히 Failed to make progress 4번 + spin 복구 (순찰 302 s).
+- 진짜 원인: `nav2.yaml` 의 `BaseObstacle.scale: 0.05` 는 무시되고 있었다 (쓰는 critic 은 ObstacleFootprint). 실제 값은 기본 1.0 → 랙 기둥 사이(1.8 m 통로, 기둥 x=-5.0 · -3.1, y=-1.25) 에서 장애물 비용이 진행 점수를 이겨 v=0 으로 멈춤. `ObstacleFootprint.scale: 0.05` 로 바꿈.
+- patrol.py 버그 2개 수정: ① near 판정에 Nav2 feedback `distance_remaining` 대신 AMCL ↔ 목표 거리 사용 (feedback 이 0 근처로 나와 4.4 m 떨어진 곳에서 '도착 처리'됨) ② 첫 구간에서 `self.truth` 가 None 이면 정지 기준이 안 잡혀 8 s 뒤 움직이는 중에도 cancel → 첫 정지가 늘 "near" 였던 이유.
+- 결과: center_aisle → pick_table → rack_a → rack_b → place_table → center_aisle 6구간 모두 SUCCEEDED, 복구 0, near 0, 195 s.
+- 회귀 확인 (모두 통과):
+  - crossing: SUCCEEDED 34 s, 최소 1.05 m (페이지 1.16 m). 흐름은 같음 (감지 → 우회 → t≈9 s 잠깐 정지 → 재개), 우회 폭 y -0.14 (전 -0.27), 정지 0.7 s (전 1.1 s). 데이터 scratchpad 의 new_crossing.pkl (보관 안 함).
+  - headon: SUCCEEDED 33 s, 최소 0.24 m (페이지 0.30 m). 늦게 반응해 겹치는 한계 그대로.
+  - ⑥ `goal 1.2 -3.6 0` SUCCEEDED. Day 2: 원점 → `pick red --phase pick` 82 s → `pick red place_table --phase place` 90 s, 슬롯 오차 3.1 cm.
+  - pytest 41 passed.
+- ⑥ 페이지 코드 발췌를 RotationShim 으로 고쳐 3701866498 v2 로 재게시 (게시본과 로컬 md 대조: 차이는 이 발췌뿐). 충돌 회피 페이지(수치 1.16 / 0.30 m, 그림)는 사용자 결정으로 그대로 둠.
+- 다음: 순찰 전체 캡처 → 개념 그림 → Confluence "전반부 통합 Demo" 페이지 (0-000000 의 '그 뒤' 참고).
+
+## 0-000000. 2026-09-30 밤 hand-off: "전반부 통합 Demo" (순찰 + 웹 대시보드) 작업 중단 지점
+
+**사용자 요청**: 전반부 통합 Demo = 내가 만든 지도로 창고 순찰 + Flask 웹 대시보드(미션 상태 · 카메라 · 위치 모니터링). Confluence 페이지(부모 3692396550)에 사용법과 구현 원리를 쓰되 **대시보드 부분은 페이지 맨 마지막에**. 아직 페이지는 안 만들었다.
+
+**만든 것 (커밋 안 함, `lessons/04_navigation/`)**
+- `patrol.py`: locations.yaml 이름 목록(기본 pick_table → rack_a → rack_b → place_table → center_aisle)을 NavigateToPose 로 차례로. `/patrol/status`(String JSON, latched) 발행, `/patrol/command`(start|cancel) 구독, `--wait` 는 시작 버튼 대기. 정지마다 truth 대비 AMCL · odom 오차 기록. **near 워치독**: 목표 0.25 m 안에서 8 s 동안 안 움직이면 cancel 후 status "near" 로 도착 처리 (DWB 가 xy_goal_tolerance 0.08 바로 밖, 옆을 보고 멈추는 경우).
+- `dashboard/frame_tap.py`: `DashboardPipeline(LecturePipeline)` = 기존 비전 파이프라인 + 카메라마다 최신 JPEG 를 `/dev/shm/mobile_openarm_dashboard/<cam>.jpg` 에 원자적 저장 (+ meta.json). launch 인자 `camera_handler:=lessons/04_navigation/dashboard/frame_tap.py:DashboardPipeline camera_fps:=5`.
+- `dashboard/server.py`: Flask(설치돼 있음) + rclpy 노드(백그라운드 스레드, SingleThreadedExecutor, SignalHandlerOptions.NO 로 Ctrl+C 깨끗이 종료). `/api/stream`(SSE 5 Hz 상태 JSON), `/api/map` · `/api/map.png`, `/camera/<name>.mjpg`(MJPEG), `/api/cameras`, `POST /api/command`. 구독: /ground_truth /amcl_pose /odom /plan /scan(TF 로 map 변환) /map /warehouse/actor_states /vision/detections /patrol/status.
+- `dashboard/static/{index.html,app.js,style.css}`: 지도 캔버스(실제 · AMCL · odom 로봇, /plan, 궤적, /scan, 사람(안전모 색), 정지 번호), 미션 카드(상태 · 진행바 · 정지표 · 시작/취소 버튼), 로봇 수치, 카메라 2대 + 검출 박스 오버레이(안전모 X 빨강), 이벤트 로그. 서버 재시작 시 MJPEG 재연결 처리.
+- 검증됨: 모든 API 동작, 카메라 스트림 · 검출 박스 표시, 대시보드 cancel 버튼(API) 동작, 서버 Ctrl+C 정상 종료, pick_table 1구간 도착(19.8 s, AMCL 0.042 m / odom 0.003 m), rack_a 는 near 처리로 통과.
+- 실행 순서: T1 `./scripts/mobile_openarm nav moveit:=false map:=$PWD/artifacts/maps/my_warehouse.yaml camera_fps:=5 camera_handler:=lessons/04_navigation/dashboard/frame_tap.py:DashboardPipeline` → T2 `python lessons/04_navigation/dashboard/server.py` (http://localhost:8080) → T3 `python lessons/04_navigation/patrol.py --wait` → 브라우저의 [순찰 시작].
+
+**막힌 곳 (다음에 먼저 할 일)**
+- rack_a(랙 사이 좁은 통로, x=-4.0) 에서 rack_b 로 떠날 때 로봇이 전혀 못 움직임 (Failed to make progress 반복 → ABORTED). DWB 가 제자리 회전을 0.022~0.067 rad/s 로만 내서 바퀴 정지마찰(약 0.1 rad/s 필요)을 못 넘김 + ObstacleFootprint 비용이 큰 회전을 막음. 수동 /cmd_vel 로는 잘 움직이므로 브리지 · 물리 문제는 아님.
+- **미검증 수정**: `src/mobile_openarm_navigation/config/nav2.yaml` 의 FollowPath 를 `nav2_rotation_shim_controller::RotationShimController`(primary DWB, rotate_to_heading_angular_vel 0.6, angular_dist_threshold 0.6, rotate_to_goal_heading true) 로 바꿨다. **아직 한 번도 돌려보지 않음** (사용자 중단). 다음 세션: ① 이 설정으로 patrol 전체 경로 시험 ② 잘 되면 ⑥ goal · 충돌 회피 시나리오 · Day 2 pick 재확인 (전체 스택 동작이 바뀜) ③ 안 되면 `git checkout src/mobile_openarm_navigation/config/nav2.yaml` 로 되돌리고 경로를 넓은 곳(pick_table, place_table, center_aisle, east_wall 등)으로 바꾸는 쪽 검토.
+- 그 뒤: 순찰 전체 캡처(대시보드 · MuJoCo · 터미널) → 개념 그림(`draw_lesson07_figures.py` 예정) → Confluence 페이지 "전반부 통합 Demo" (순찰 흐름 → 실행 → 결과 → 코드, **대시보드 사용법 · 구현 원리(SSE · MJPEG · frame_tap · ROS 스레드)는 맨 끝**).
+- 캡처 요령: Chrome `--app=http://localhost:8080` 창은 xdotool 클릭 · 키(F5, Ctrl+R)가 먹지 않음 → 시작은 `curl -X POST -H "Content-Type: application/json" -d '{"cmd":"start"}' localhost:8080/api/command`, 새로고침은 창을 닫고 다시 연다. MuJoCo 창이 위에 떠 있으니 캡처 전 MuJoCo · RViz 창을 최소화. 대시보드 캡처 영역 `import -window root -crop 1690x992+70+68` (창을 70,40 에 두었을 때).
+- nohup 금지: `nohup … &` 로 띄운 launch 는 SIGINT 무시 → run_in_background 로 띄우고 `pkill -INT -f "[w]arehouse.launch.py mode:=nav"` 로 끈다.
+
+## 0-00000. 2026-09-30 저녁: "ROS2 nav2의 충돌 회피" 페이지 신규 (3701145683)
+
+- 원고 `docs/camp/lesson06_avoidance.md` (h2 4개: 1 개념 4절 → 2 crossing 실행 11절 → 3 headon 한계 5절 → 4 코드와 설정 4절 + 해 볼 것). 그림 17장 (`draw_lesson06_figures.py`, `render_lesson06_terminals.py`, 캡처는 `artifacts/dev/avoid_frames/`).
+- 도구: `docs/camp/avoid_scenario.py` (`--mode crossing|headon`, /warehouse/set_actor 로 worker_helmet_orange teleport + set_path, NavigateToPose (6.2,0,0), 최소 거리 출력). **로봇이 원점에서 동쪽을 볼 때(새로 띄운 직후) 실행**. `nav_record.py` 에 actors · local_plan · global_series 추가. 데이터 `artifacts/dev/nav_crossing.pkl`(확대 화면 회차), `nav_crossing_wide.pkl`, `nav_headon.pkl`.
+- 실측: crossing 최소 1.16 m (감지 6 s → 남쪽 우회 → 9~10 s 정지 대기 → 근로자 뒤로 재개). headon 최소 0.30 m (다가오는 속도 0.7 m/s, 1.5 m 에서야 반응 → 겹침). 처음 시도(서쪽 목표)는 180° 제자리 회전에 12 s 걸려 폐기.
+- **코드 수정**: `navigation.rviz` 에 Global Costmap · Local Costmap (costmap 색) · Footprint · DWB Trajectories(/marker) · Local Plan 표시 추가. 그래서 ⑥ 페이지 캡처(표시 추가 전)와 지금 화면이 다르다. slam 모드에서는 이 표시들이 '데이터 없음' 상태.
+- 함정: `nohup ... &` 로 띄운 launch 는 SIGINT 를 무시해 pkill -INT 로 안 죽고, TERM 뒤에도 자식이 남음 → 결국 KILL. launch 는 run_in_background 로 띄울 것.
+- `draw_lesson05_figures.py` 의 amcl_compare 입력을 `artifacts/dev/nav_frames/` 로 옮김.
+- 커밋 안 함.
+
+## 0-0000. 2026-09-30 저녁: ⑥ "ROS2 Navigation" 페이지 신규 (3701866498)
+
+- 원고 `docs/camp/lesson05_navigation.md` (h2 4개: 1 Nav2 란 8절 → 2 실행 22절 → 3 AMCL 실험 6절 → 4 코드와 설정 8절 + 해 볼 것). 그림 30장: `draw_lesson05_figures.py`(개념 14 + 실데이터 5: global_plan · local_costmap · speed · amcl_particles · amcl_compare), `render_lesson05_terminals.py`(6장), 화면 캡처 5장.
+- 도구: `docs/camp/nav_record.py` (costmap · /plan · particle_cloud · amcl_pose · truth · odom → pkl). 데이터 `artifacts/dev/nav_run.pkl`(goal 명령 + RViz 목표), `nav_amcl.pkl`(틀린 initialpose 0.6,0.4,23° → 7 s 안에 퍼짐 0.49→0.09 m, 오차 3~6 cm).
+- **코드 수정**: `navigation.rviz` · `moveit.rviz` 의 `nav2_rviz_plugins/GoalTool` 은 Navigation 2 패널이 없으면 목표를 안 보냄(버튼이 먹통) → `rviz_default_plugins/SetGoal` (Topic /goal_pose, 버튼 이름 2D Goal Pose) 로 교체. bt_navigator 가 /goal_pose 를 구독해 동작 확인.
+- 실측: goal 1.2 -3.6 0 → 27.4 s SUCCEEDED, 복구 동작 없음. /plan 약 1 Hz 재계산.
+- 커밋 안 함.
+
+## 0-000. 2026-09-30 오후: ⑤ SLAM 페이지 신규 + ④ 개정
+
+- 새 페이지 3701112888 "SLAM: SLAM Toolbox로 창고 지도 만들기" (부모 3692396550) ← `docs/camp/lesson04_slam.md` (h2 4개: 1 SLAM 이란 7절 → 2 실행 20절(명령 h3 · 실행 결과 h3 분리) → 3 지도 저장 6절 → 4 코드와 설정 5절(그림 절 먼저, 코드 절 뒤) + 해 볼 것). 그림 26장: `draw_lesson04_figures.py`(개념 13장 + 실데이터 4장: map_growth · map_compare · lidar_height · pose_graph_real), `render_lesson04_terminals.py`(터미널 캡처 7장, 실측 텍스트), 화면 캡처 2장(run_result · final_screen).
+- 도구: `docs/camp/slam_tour.py` (/odom 웨이포인트 순회 58 m, `--record` 로 /map npz, `--shots` 로 화면 캡처). 실측 데이터 `artifacts/dev/slam_maps/wp0~7.npz`, `slam_graph.pkl`, `artifacts/maps/my_warehouse.{pgm,yaml}`.
+- 함정: 기본 actors 로는 가장자리 통로에 사람·지게차가 있어 순회가 막힘 → `slam actors:=none`. 제자리 회전 P 제어는 0.12 rad/s 미만이면 마찰로 멈춤. RViz 뷰는 시작 후 휠 7칸 축소하면 창고 전체가 들어옴. Ceres `num_threads: 50 exceeds ... 16` 경고는 최적화 때마다 나오며 무해.
+- 실측: 한 바퀴 뒤 map→odom (-0.023, 0.013, -0.37°), /map 301×222 @ 5 cm, 1 Hz, 포즈 그래프 노드 1110 · 루프 엣지 190. 라이다 높이 0.239 m → 작업대는 다리만, 선반은 기둥 + 아래 칸 상자만 지도에 남음(패키지 지도는 통째로 막힘). `start map:=$PWD/artifacts/maps/my_warehouse.yaml` 로 Nav2 active 확인.
+- ④ 개정(v11→v20): 코드 절 그림 먼저, lidar/scan 발행 코드 추가, 브리지 프로세스 그림, odom 오차 원인 h3 7개(`draw_lesson03_drift_figures.py`, `odom_offline.py`). 미결: `odom_experiment.py` 가 /odom 과 한 틱 전 /ground_truth 를 짝지음 → 결과 그래프 재작성 제안 중.
+- 커밋 안 함.
+
+## 0-00. 2026-09-30 시작 체크리스트 (09-29 밤 점검 결과)
+
+- ROS 프로세스는 모두 종료함(cleanup_ros.sh + `ros2 daemon stop`). 새로 시작하면 `source scripts/env.sh` 후 바로 띄우면 된다.
+- 점검 결과 이상 없음: lesson01·02·03 md 가 참조하는 PNG 는 전부 존재, 중복·누락 없음. git 의 `D lesson02_intro_openarm.png` · `lesson02_intro_vicpinky.png` · `lesson02_pkg_files.png` 는 의도된 삭제(사이트 사진 그림으로 교체 / '이 페이지에서 보는 파일' 절 삭제).
+- git: 09-29 오후 작업 전체를 커밋 9ad8d70 으로 push 함. 작업 트리 깨끗.
+- **결정 대기**: `docs/camp/lesson03_square3_motion.png` 는 만들었지만 ④ 페이지에 안 들어감(3바퀴 절은 그래프만). 넣을지 지울지 사용자에게 확인.
+- 검토 대기: ③ 3697442817, ④ 3696820239. Confluence 게시본과 로컬 md 의 일치 여부는 아직 대조 안 함.
+- 다음 작업: 커리큘럼 ⑤ SLAM 페이지 (0-0 마지막 불릿 참고).
+
+## 0-0. 2026-09-29 하루 요약 (다음 세션이 먼저 볼 것)
+
+- Confluence EDU 학생 페이지 4장이 됐다: 소개(3692331022) · 설정(3692331054) · ① MuJoCo와 ROS2 연결(3692920898, v15) · ③ 로봇 모델 Description(3697442817, v10, 신규) · ④ 센서·TF·Odom(3696820239, v3, 신규). 각 페이지의 원고는 `docs/camp/lesson01_mujoco_ros2.md` · `lesson02_description.md` · `lesson03_sensors_odom.md`, 그림 생성 스크립트는 `draw_lesson01_xml_figures.py` · `draw_lesson01_py_figures.py` · `draw_lesson02_figures.py` · `draw_lesson03_figures.py`.
+- 코드 변경: `src/vicpinky_description` · `src/openarm_description` 에 `launch/display.launch.py` + `rviz/display.rviz` 추가(빌드됨). 실험 도구 `docs/camp/odom_experiment.py` · `scan_probe.py`.
+- git: 오전 작업은 커밋 c464fc3 으로 push 됨. **오후 작업(③ 페이지 v3 이후 개정, ④ 페이지 전체, 그림 · 스크립트)은 아직 커밋하지 않았다.** 사용자가 요청하면 `git add -A && git commit && git push`.
+- 사용자 편집 습관(0-2 에 추가됨): 코드 절은 코드 + 그림만, 설명 불릿은 거의 다 지운다. 개념 절 불릿도 자주 지운다 → 새 페이지는 불릿을 최소로 쓰고 그림에 내용을 담는다.
+- 다음 페이지 = 커리큘럼 ⑤ SLAM (`./scripts/mobile_openarm slam`, slam_toolbox, map → odom, 지도 저장) → ⑥ Nav2. 같은 규칙과 같은 도구(render_terminal.py, xdotool 캡처, draw_*_figures.py)로 만든다.
+
+
+## 0-1. 배포 채널 (2026-09-27 저녁에 만든 것)
+
+- **GitHub (public)**: https://github.com/PinkWink/pinklab_mobile_openarm_ros2_mujoco — 이 워크스페이스가 그대로 저장소(`main`). `gh` CLI가 PinkWink 계정으로 로그인돼 있다. 커밋·push는 사용자가 요청할 때만. 제외 규칙은 `.gitignore`(build/install/log, `.venv*`, `.env`, `confluence_token.txt`, artifacts/logs/runs/datasets, 가중치는 OpenVINO 320 하나만).
+- **Confluence EDU 공간** (spaceId 2517565443, 부모 페이지 3692396550 "주행형 양팔로봇 수업자료 (mujoco + ROS2)"):
+  - 3692331022 "패키지 소개와 단기 과정 커리큘럼" ← `docs/camp/intro_curriculum.md` (개조식, h3마다 그림 1장) + `architecture.png` + `intro_*.png` 21장 (`draw_intro_figures.py`, 2026-09-28 v10)
+  - 3692331054 "환경 설정과 패키지 사용법" ← `docs/camp/setup_usage.md` (개조식, h3마다 그림 1장) + 그림 4장 (`draw_setup_figures.py`) + `setup_*.png` 26장 (setup_start_result.png · setup_display_result.png 는 실제 화면 캡처) (`draw_setup_detail_figures.py`, 2026-09-28)
+  - 3692920898 "MuJoCo와 ROS2를 연결하기" (Gazebo vs MuJoCo + two_link_arm.xml 해설(2절, 2026-09-29 추가: URDF vs MJCF 4절 → mujoco.viewer 캡처 → 요소별 h3 10개, 그림 `draw_lesson01_xml_figures.py`) + 최소 브리지 3절: 실행 캡처 → Python↔MuJoCo 8절(MjModel · MjData · mj_step · 이름 찾기 · Renderer · viewer · 실시간, `draw_lesson01_py_figures.py`) → 함수별 코드 6절 → 'MuJoCo <-> ROS2' 요약 그림(`lesson01_exchange.png`) → 해 볼 것. 요소별 XML 절과 뷰어 절은 사용자 요청으로 불릿 없이 코드+그림만, 2026-09-29 v14) ← `docs/camp/lesson01_mujoco_ros2.md` (h3 32개 = 그림 32장) + `lesson01_*.png` (`draw_lesson01_figures.py` 블록선도 20장, `render_terminal.py` 로 그린 실제 CLI 출력 캡처 9장, 실제 화면 캡처 `lesson01_run_result.png` · `lesson01_pub1_motion.png` · `lesson01_pub2_motion.png` · `lesson01_t2_rqt_window.png`)
+  - 3697442817 "로봇 모델(Description): URDF/Xacro → MJCF 와 robot_state_publisher" (커리큘럼 ③, 2026-09-29 v1) ← `docs/camp/lesson02_description.md` (h3 28개: 1 패키지 구분 3절 → 2 관계 편 URDF 하나가 세 곳으로 · Xacro 조립 · URDF→MJCF 더해지는 것 · 이름 일치 · TF 발행자 · display 6절 + 실행 캡처 8절 → 3 코드 편 12절(expand_urdf · warehouse.launch setup · build_model · link · joint 규칙 · geometry · lidar site/camera · actuator · mimic · Physics.__init__ · publish_state · display.launch) → 해 볼 것) + `lesson02_*.png` 29장 (`draw_lesson02_figures.py` 블록선도 21장, `render_terminal.py` CLI 캡처 8장) + `setup_display_result.png` 재사용. 2026-09-29 오후 추가(v3): '두 종류의 패키지' 뒤에 OpenARM · Vic Pinky 소개 h3 2개와 각 패키지 단독 display 명령·결과 h3 4개. 이를 위해 상류 패키지 `src/vicpinky_description` 과 `src/openarm_description` 에 `launch/display.launch.py` + `rviz/display.rviz` 를 추가(setup.py 에 launch/rviz 폴더 설치 등록, UPSTREAM.md 에 'Local additions' 기록; vicpinky 는 robot_core.xacro 를 xacro 로 펼치고, openarm 은 상류 예제 `urdf/example/v1.urdf` 를 그대로 씀, Fixed Frame 은 각각 base_footprint · world). 실행: `ros2 launch vicpinky_description display.launch.py`, `ros2 launch openarm_description display.launch.py`. v4: 소개 h3 2개는 공식 사이트 사진·사양 요약으로 교체(`lesson02_intro_openarm_site.png` = docs.openarm.dev 히어로+치수도, `lesson02_intro_vicpinky_site.png` = pinklab.art/vic-pinky 제품사진+제원도면, PIL 합성; 손그림 intro 함수는 제거). 주의: 사이트는 OpenArm 2.0 기준, 우리 자산은 v1.0. v5: 소개 h3 는 사진만 두고, 요약 불릿은 새 h3 'OpenARM 특징' · 'Vic Pinky 특징'(카드 블록선도 `lesson02_feat_*.png` + 불릿)으로 분리. v6: 특징 절 · display 절 불릿 삭제, '이 페이지에서 보는 파일' h3 삭제(그림·함수도 제거). 남은 불릿은 '크기 비교' 2개 · '해 볼 것' 3개뿐. v7: expand_urdf h3 제목에 '(다른 launch · 모듈이 import 해서 사용)' 추가. v8: 3 코드 편 맨 앞에 h3 '파생물의 흐름: model.py → robot.urdf → 누가 쓰나'(그림만, `lesson02_code_derived.png`; 사용자 질문 '왜 매번 생성하나'에 대한 답 = xacro 76 ms · MJCF 296 ms 로 싸고, 원본 xacro/YAML/launch 인자에 따라 달라지는 파생물이라 캐시하면 stale 위험). v9: 같은 그림 아래 행에 build_model 파생물 3종(mobile_openarm.urdf · *_<sha>.obj 41개 · warehouse.xml → MuJoCo) 추가. 같은 폴더의 aruco_*.png(markers.py) · cameras/(camera_demo) · run.lock 은 description 파생물이 아님. v10: '시뮬레이터 없이 보기 … URDF 와 MJCF 의 크기 비교'(h3 10개)를 2절에서 떼어 새 최상위 절 '4. 실행해보기'로 3 코드 편 뒤에 배치, '해 볼 것'은 맨 끝(4절 아래)으로 이동. 캡처는 `display.launch.py gui:=false rviz:=false` 를 bash 로 띄워 얻음(zsh 에서 setup.bash 소싱 실패 → `bash -c` 로 실행).
+  - 3696820239 "센서 · TF · Odom: 브리지가 재는 것과 오도메트리" (커리큘럼 ④, 2026-09-29 v2) ← `docs/camp/lesson03_sensors_odom.md` (h2 5개: 1 Bringup(launch 트리 · mode · wrapper · drive 실행 캡처) → 2 센서(개요 · 라이다 scan() 코드 · LaserScan · echo/probe 캡처 · RViz · 엔코더 · 카메라 · clock/TF · view_frames 트리 · 주기 실측) → 3 Odom 계산(차동 기구학 · step 앞/뒤 코드 · publish_state · echo/tf 캡처) → 4 프레임과 실험(world/odom/base_footprint · /ground_truth · 사각형 주행 실험 1/3바퀴 그래프 · spawn 실험) → 5 의미와 단점 → 해 볼 것) + `lesson03_*.png` 35장 (`draw_lesson03_figures.py` 블록선도 18장, 터미널 캡처 11장, 화면 캡처 4장, 그래프 2장). 실험 도구: `docs/camp/odom_experiment.py`(/cmd_vel 로 사각형, odom 폐루프, /odom·/ground_truth CSV), `docs/camp/scan_probe.py`. 실측: 사각형 1바퀴(8 m) 오차 0.5 cm/0.19°, 3바퀴(24 m) 2.0 cm/0.77°; spawn:=pick_table 이면 truth (1.2,-3.6) vs odom (0,0). 뷰어+RViz+카메라 켠 상태의 hz 실측은 설정의 약 0.82배(실시간 비율). 장애물에 밀어붙이는 실험은 바퀴가 토크 한계에서 멈춰(미끄럼 없음) 시연이 안 돼 제외.
+  - 갱신: `set -a; source ../confluence_token.txt; set +a; python3 scripts/publish_confluence.py <md> "<제목>" --update <pageId> [png...]`. 새 하위 페이지: `... <md> "<제목>" 3692396550 2517565443 [png...]`. 문법: `:::tip|info|note|warning|panel 제목 … :::`, `:::cards(2|3)` + `::card 제목`, `![..](x.png){width=1000}`.
+- **Confluence PD 공간** (개발 기록, 부모 3683418127): Phase 0 3684663302, M1 3687055362, M2 3687776258, M3 3687251977, M4 3692527619, M5 3692527659.
+- **학회 전달용 커리큘럼**: Claude Doc https://claude.ai/code/artifact/5d2472b7-3ceb-4be2-9ee2-2da6dbddba30 + 로컬 `../CAMP_CURRICULUM.md`. 강사 개발 계획은 `../LECTURE_PLAN.md`(v4).
+
+## 0-2. 페이지 작성 규칙 (2026-09-28, 사용자 피드백으로 굳어진 것)
+
+- 문장은 짧게, 전부 개조식. 표는 쓰지 않는다(사용자가 표를 모두 삭제시킴). h3가 최소 단위이고 나중에 슬라이드 한 장이 되므로 h3 본문은 짧게, **h3마다 대표 그림 1장**.
+- 명령은 코드 블록으로 두되 **명령마다 h3를 나누고 실제 실행 결과를 캡처**해서 붙인다. 터미널 출력은 실제로 실행해 얻은 텍스트를 `docs/camp/render_terminal.py`로 터미널 모양 PNG로 그린다(한글 폰트 NanumGothicCoding). GUI는 `DISPLAY=:1`에서 xdotool 로 창을 배치하고 `import -window root -crop WxH+X+Y` 로 찍는다. 움직임(topic pub 등)은 보내기 전/후를 각각 찍어 PIL 로 좌우 합성한다(`lesson01_pub1_motion.png` 만든 방식, 코드는 세션 기록에만 있고 스크립트화 안 됨).
+- 코드 설명은 "함수 이름 - 역할" h3 + 코드 발췌 + 블록선도. **불릿은 넣지 않는다** (2026-09-29 사용자가 lesson01·02 의 코드 절 불릿을 전부 삭제시킴). 개념 절의 불릿도 자주 지우므로 3개 이하로 짧게. 최상위 절은 md `##` (Confluence h2) 이고 사용자가 'h1' 이라고 부르는 것이 이것이다.
+- 외부 제품 소개(OpenARM · Vic Pinky)는 공식 사이트 사진을 PIL 로 합성한 그림 1장 + 특징 카드 블록선도 1장으로 (lesson02 1절 견본). 시뮬레이터 화면 캡처는 `import -window root -crop 2230x866+0+0` 후 (62,30) 부터 잘라 독·상단바 제거; 창은 xdotool 로 MuJoCo 0,0 1100×820 · RViz 1120,0 1100×820 배치.
+- 그림은 matplotlib, 직교 화살표만, 헬퍼는 `draw_intro_figures.py`(chain / flow_rows / tiles / rbox)를 다른 스크립트가 import 한다. 렌더 후 반드시 PNG를 눈으로 확인(글자 넘침이 잦다).
+- Claude Code Bash 에서 `pkill -f`/`pgrep -f` 패턴이 자기 명령줄과 겹치면 셸이 죽는다 → `pgrep -f "^python lessons/..."` 처럼 앵커를 쓴다. 백그라운드로 띄운 파이썬은 SIGINT 를 무시하므로 종료 테스트는 `timeout -s INT` 로 포그라운드에서 한다.
+
+## 0. 컨셉 변경 (2026-09-27)
+
+6모듈 LLM·비전 강좌 계획(`../../LECTURE_PLAN.md` v3)은 **2일짜리 겨울 캠프**로 바뀌었다: "MuJoCo + ROS2 기반 Mobile Dual-Arm Robot & LMM Robotics", 수강생 60~80명.
+
+- Day 1: Gazebo vs MuJoCo → MuJoCo+ROS2 브리지 → OpenARM 로봇 description → 센서/TF/odom/LiDAR → SLAM → Nav2 → 자율주행 데모.
+- Day 2: MoveIt+MuJoCo → 팔/EE 제어 → Pick & Place → Nav2+Pick&Place 통합 → LMM(OpenAI API) → LMM→ROS2 Task Pipeline → MuJoCo 웹 대시보드(버퍼, 밀리면 데모만) → Final Mission(자연어 → LMM → Nav2/MoveIt → MuJoCo).
+- GitHub 폴더: 01_mujoco_ros2, 02_robot_description, 03_slam, 04_navigation, 05_moveit, 06_pick_place, 07_mobile_manipulation, 08_lmm, 09_web_dashboard, 10_final_project.
+- 운영: 도커 없음. 수강생이 직접 설치하고, GitHub의 **완성 소스**를 실행하며 강사 설명을 듣는다. 모듈당 50~70분(개념 → 핵심 코드 → 따라 실행 → 문제 해결). 수업 중 pip install 금지.
+- 마감: 커리큘럼·시간표를 2026-09-29(화)까지 로봇학회에 전달.
+- 범위 밖이 된 것: YOLO 학습(M2), 사람·안전모 조우 기억(M5), 센서 동기화(M6). "빨간 물체 검출"은 배포 가중치(OpenVINO CPU) 또는 HSV로 블랙박스 처리.
+
+기존 자산과의 대응: 01~08, 10은 Phase 0 + M1~M4 코드로 거의 덮인다. 신규는 09 웹 대시보드, LMM의 **단계 목록** 출력(현재 스키마는 `move_object` 한 명령) + Task Manager, Gazebo vs MuJoCo 강의자료, 30줄짜리 최소 브리지 예제, 모듈별 README/실행 명령, git 저장소(현재 git 아님).
+
+## 1. 지금 어디까지 왔나
+
+- **강의 모듈 05·06 완료 (2026-09-27)**: `lessons/05_moveit/ee_control.py`(where/named/ik/pose/cartesian/gripper/demo) + README, `lessons/06_pick_place/pick_then_place.py`(phase pick → 같은 작업대에 place) + README. launch 인자 `spawn:=pick_table|X,Y,YAW`(MuJoCo 위치 + AMCL 초기 위치). 도킹은 이제 마커 쌍 측정만 쓰고 단일 마커는 무시(blind 구간은 마지막 쌍 측정의 odom 기준). 검증: EE demo 성공, red pick 39 s + place-back 42 s(3.7 cm), blue pick 70 s + place_table 103 s(1.8 cm).
+- **M5 완료 (2026-09-27)**: LMM 작업 계획(RobotPlan: navigate/detect/pick/place/…) + Task Manager(`ros2 run warehouse_lecture task_manager`, /execute_plan). PickPlace 서버에 `phase`(all/pick/place)와 `held` 상태, 도킹 단일 마커 필터, 들기 대체 경로, 실패 복구(recover) 추가. 20문장 계획 정확도 20/20, Final Mission 3종(빨간 상자 운반 174 s, 랙 C 보고 66 s, 노란 상자 운반 155 s) 연속 성공. 문서 `docs/lecture/05_task_plan.md`, 예제 `examples/m5_task_plan/`, 테스트 41개.
+- **M4 완료 (2026-09-27)**: 운반 명령 3회 연속 성공(빨강 152 s, 파랑 170 s, 노랑 154 s, 슬롯 오차 2.7~4.3 cm). 문서 `docs/lecture/04_command_dialog.md`. 노란 상자(옆 도킹)는 처음 성공. 고친 것: 옆 도킹 부호(`pick_place_server.py`, `-dock_side`), Nav2 `default_server_timeout` 20→200 ms, `NavClient.go_to` ABORTED 시 1회 재시도, 회귀 테스트 추가(tests 35개).
+- M3 완료 (2026-09-22): `examples/m3_llm/`, `docs/lecture/03_llm.md`, Confluence 3687251977.
+- M2 완료 (2026-09-22): `examples/m2_yolo/`, `docs/lecture/02_yolo.md`, Confluence 3687776258, 가중치 `weights/`.
+- M1 완료 (2026-09-22): `examples/m1_ros_vision/`, `docs/lecture/01_ros_vision.md`, Confluence 3687055362.
+- Phase 0 완료: `docs/lecture/phase0_report.md`, Confluence 3684663302 (부모 3683418127 "MuJoCo + ROS2 패키지 구성", space PD, spaceId 3419570180).
+- 사용법 `docs/USAGE.md`, 설치 `docs/lecture/00_setup.md`. 소스는 git 저장소가 아니다. 원본 ZIP은 `../mobile_openarm_jazzy_ws.zip`.
+
+## 2. 재부팅 후 다시 돌리는 순서
+
+```bash
+cd ~/mujoco_ros2/mobile_openarm_ws
+source /opt/ros/jazzy/setup.bash          # zsh면 setup.zsh
+source scripts/env.sh                    # venv + install setup + domain 43 + CycloneDDS
+./scripts/cleanup_ros.sh
+./scripts/mobile_openarm build           # 소스가 바뀌었을 때만 (config yaml 은 build/ 로 복사되므로 yaml 수정 후에도 필요)
+python -m pytest tests -q                # 41개 통과 (약 1.2분). 시뮬레이터와 동시에 돌리지 말 것
+./scripts/mobile_openarm start           # 시뮬레이터
+```
+
+M4 전체 데모(시뮬레이터 + 실행기 + 텍스트 대화)는 `docs/lecture/04_command_dialog.md` 2절, Final Mission(시뮬레이터 + task_manager + 04_final_mission.py)은 `docs/lecture/05_task_plan.md` 2절.
+
+## 3. 다음 작업 (2일 과정 기준)
+
+1. (완료 09-27) `LECTURE_PLAN.md` v4, 학회 전달 문서(Claude Doc + `CAMP_CURRICULUM.md`). 9/29 학회 전달은 사용자가 한다.
+2. (완료 2026-09-27) 계획 수준 스키마 + Task Manager + PickPlace `phase`. 남은 것: 06_pick_place 실습 시나리오(`pick red --phase pick` → `pick red pick_table --phase place` 로 같은 작업대에 다시 놓기) 문서화·검증.
+3. (완료) EE 제어 예제 → `lessons/05_moveit/`.
+4. 09 웹 대시보드: 카메라 프레임은 핸들러 프로세스 안에 있으므로 핸들러가 JPEG를 websocket으로 내보내는 방식 또는 rosbridge + roslibjs. 로봇 상태(/odom, /joint_states, 스킬 phase) 표시 + 자연어 명령 입력(→ /warehouse/utterance).
+4. GitHub 저장소: `git init`, `src/`는 하나(완성 코드), `lessons/01~10/README.md`에 실행 명령·핵심 코드 포인터. 설치 스크립트 + 사전 환경 점검 스크립트 강화(수강생 직접 설치).
+5. ~~Gazebo vs MuJoCo 강의자료, 최소 브리지 예제(01_mujoco_ros2)~~ **완료 2026-09-28**: `lessons/01_mujoco_ros2/` (two_link_arm.xml = 2링크 팔 + 팔 끝 카메라, minimal_bridge.py 138줄: /clock /joint_states /tf /tip_camera/image_raw 발행 · /cmd 구독, README). Confluence 3692920898 v7 (Gazebo vs MuJoCo 6절 → 최소 브리지 → 실행 명령별 캡처 → 함수별 코드 구조 6절). 실행: `source scripts/env.sh; python lessons/01_mujoco_ros2/minimal_bridge.py --viewer`, 명령 `ros2 topic pub -1 /cmd std_msgs/msg/Float64MultiArray "{data: [0.6, 1.5]}"`. 함정: MJCF 관절 range 는 `compiler angle="radian"` 없으면 도(degree) 단위; 관절에서 겹치는 캡슐은 contype=0 으로 자기 충돌 제외; 카메라 `xyaxes="0 -1 0 -1 0 0"` 이어야 링크 방향을 정방향으로 본다; `rclpy.init(signal_handler_options=SignalHandlerOptions.NO)` 라야 Ctrl+C 가 깨끗이 끝난다. 미결: `publish_joints` 가 TF 까지 발행해 이름이 좁다(사용자가 알고 있음, 나누려면 페이지 3장 코드 발췌도 같이 수정).
+   **다음 세션은 여기서 시작**: (a) 페이지 3692920898 사용자 검토 후 남은 수정, (b) ~~커리큘럼 ③ Robot Description 페이지~~ **완료 2026-09-29** (3697442817, 사용자 검토 대기), (b-2) ~~커리큘럼 ④ Sensor·TF·Odom 페이지~~ **완료 2026-09-29** (3696820239, 사용자 검토 대기; 다음 페이지 = ⑤ SLAM), (c) `lessons/02~04`, `07~10` README, 수강생용 `INSTALL.md`와 `scripts/check_env.sh`(PASS/FAIL 표), 마지막에 09 웹 대시보드.
+6. lessons README 틀은 `lessons/05_moveit/README.md`, `lessons/06_pick_place/README.md`를 따른다(목표 → 실행 → 화면에서 볼 것 → 핵심 코드 → 해 볼 것 → 문제 해결).
+
+## 4. 개발용 도구
+
+| 스크립트 | 용도 |
+|---|---|
+| `scripts/dev/restart_sim.sh [이름]` | headless 시뮬레이터 재시작 + 준비 대기. 로그 `artifacts/dev/<이름>.log`. `LAUNCH_ARGS="..."`로 인자 추가 |
+| `scripts/dev/run_pick.sh [색] [from] [to]` | 운반 실행 + 상자 높이/손가락 타임라인 |
+| `scripts/dev/monitor_parcel.py <log>` | parcel_1 높이·오른손가락·스킬 단계 기록 |
+| `scripts/dev/grasp_physics.py` | ROS 없이 파지 유지 물리 실험 |
+| `scripts/publish_confluence.py` | md → Confluence 하위 페이지 (토큰은 `../confluence_token.txt`) |
+| `scripts/cleanup_ros.sh` | 잔여 ROS 프로세스 정리 |
+
+## 5. 알아 두어야 할 함정
+
+- `ros2 launch`를 그냥 치면 bridge가 mujoco를 못 찾는다. `env.sh`의 `ros2launch` 함수나 wrapper를 쓴다.
+- ros2 CLI는 wrapper `exec` 또는 `env.sh` 환경에서만 노드가 보인다(CycloneDDS, domain 43). 토픽이 2개만 보이면 `ros2 daemon stop`.
+- 시뮬레이터를 강제 종료하면 Nav2·MoveIt 자식이 남아 다음 실행에서 액션이 거부된다 → cleanup_ros.sh.
+- `pkill -f 패턴`을 다른 명령과 같은 셸 줄에 쓰면 그 셸 자신이 죽는다. 종료는 별도의 짧은 명령으로, 패턴은 `p="command_exec""utor"; pkill -f "$p"`처럼 쪼개서.
+- venv에 numpy 2가 들어가면 시스템 scipy와 충돌한다. `requirements-lecture.txt`의 고정 버전을 유지한다.
+- 상자를 옮긴 뒤 세계는 초기화되지 않는다. 반복 시험은 시뮬레이터 재시작.
+- 도킹 부호: `dock_side_for`(베이스의 축 기준 오프셋, +왼쪽)와 서보 `side`(베이스에서 본 축 위치)는 부호가 반대다.
+- 4코어 제한에서 Nav2 BT의 goal 응답 타임아웃(default_server_timeout)이 20 ms면 ABORTED(6)가 난다. 200 ms로 둔다.
+- `command_executor`와 `task_manager`는 둘 다 /execute_command 를 서비스하므로 하나만 띄운다. 시뮬레이터를 다시 띄우면 task_manager 도 다시 띄운다(든 물체 상태).
+- 도킹은 마커 쌍 측정만 쓴다. 마커가 하나만 보이면 그 법선(±20°)이 횡 12 cm·거리 5 cm 를 틀리게 하므로 즉시 blind 구간으로 넘어간다(nav_client.dock). 상자가 planning scene 에 붙은 채 실패하면 recover() 가 풀어 준다.
