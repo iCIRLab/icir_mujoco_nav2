@@ -177,12 +177,48 @@ class MoveItClient:
         req.max_step = float(m["cartesian_step"])
         req.jump_threshold = 0.0
         req.avoid_collisions = True
-        req.max_velocity_scaling_factor = float(m["velocity_scaling"])
-        req.max_acceleration_scaling_factor = float(m["acceleration_scaling"])
+        # req.max_velocity_scaling_factor = float(m["velocity_scaling"])
+        # req.max_acceleration_scaling_factor = float(m["acceleration_scaling"])
+        # 설치된 서비스 메시지가 속도, 가속도 배율을 지원하는지 확인
+        supports_scaling = (
+            hasattr(req, "max_velocity_scaling_factor")
+            and hasattr(req, "max_acceleration_scaling_factor")
+        )
+
+        velocity_scale = float(m["velocity_scaling"])
+        acceleration_scale = float(m["acceleration_scaling"])
+
+        if not (0.0 < velocity_scale <= 1.0
+                and 0.0 < acceleration_scale <= 1.0):
+            raise SkillError("Velocity and acceleration scaling factors must be in the range (0.0, 1.0]")
+        if supports_scaling:
+            req.max_velocity_scaling_factor = velocity_scale
+            req.max_acceleration_scaling_factor = acceleration_scale
+
         res = wait(self.cartesian.call_async(req), 10.0, "compute_cartesian_path")
         if res.error_code.val != MoveItErrorCodes.SUCCESS or res.fraction < float(m["cartesian_min_fraction"]):
             raise SkillError(f"Cartesian path covers only {res.fraction * 100:.0f}% (error_code={res.error_code.val})")
         goal = ExecuteTrajectory.Goal(trajectory=res.solution)
+
+        # 배율 필드가 없는 버전에서는 반환된 궤적의 시간을 늘려 감속
+        if not supports_scaling:
+            scale = min(velocity_scale, math.sqrt(acceleration_scale))
+
+            for point in res.solution.joint_trajectory.points:
+                duration_ns = (
+                    point.time_from_start.sec * 1_000_000_000
+                    + point.time_from_start.nanosec
+                )
+                scaled_ns = int(round(duration_ns / scale))
+                sec, nanosec = divmod(scaled_ns, 1_000_000_000)
+
+                point.time_from_start.sec = sec
+                point.time_from_start.nanosec = nanosec
+                point.velocities = [v * scale for v in point.velocities]
+                point.accelerations = [
+                    a * scale * scale for a in point.accelerations
+                ]
+
         handle = wait(self.execute.send_goal_async(goal), 10.0, "execute_trajectory goal")
         if not handle.accepted:
             raise SkillError("MoveIt rejected the Cartesian trajectory")

@@ -1,0 +1,39 @@
+# ROS / Python build products
+build/
+install/
+log/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local Python environments
+.venv*/
+venv/
+env/
+
+# Local editor, agent and credential settings
+.vscode/
+.idea/
+.agents/
+.codex/
+.aws/
+.DS_Store
+.env
+.env.*
+!.env.example
+confluence_token.txt
+
+# Simulation and runtime outputs
+.ros/
+artifacts/
+logs/
+runs/
+datasets/
+*.log
+*.pid
+MUJOCO_LOG.TXT
