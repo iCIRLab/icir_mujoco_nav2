@@ -14,7 +14,7 @@ MuJoCo가 Vic Pinky 이동 베이스와 OpenARM 양팔의 물리 시뮬레이션
 | 물리 엔진 | MuJoCo 3.6.0 |
 | 화면 | 로컬 데스크톱에서 MuJoCo 뷰어와 RViz 실행 |
 | 셸 | Bash |
-| 브랜치 | `humble` |
+| 브랜치 | `main(humble)` |
 
 이 문서의 Python 버전 목록은 기존 `~/mobile_openarm_ws/.venv-mobile-openarm`에서 확인한 설치 환경을 기준으로 합니다. **새 PC에 그 폴더가 없어도 아래 절차로 설치할 수 있습니다.**
 
@@ -25,11 +25,11 @@ ROS 2가 아직 설치되지 않았다면 먼저 [공식 Humble 설치 안내](h
 ```text
 ~/icir_mujoco_nav2/                      # 작업공간 루트
 ├── .venv-mobile-openarm/               # Python 가상환경
-├── requirements-humble-venv.txt        # 아래에서 작성할 버전 목록
 ├── src/
 │   └── icir_mujoco_nav2/               # 이 Git 저장소
 │       ├── src/                       # ROS 패키지 10개
 │       ├── sim_config.yaml
+│       ├── requirements-humble-venv.txt # 고정된 Python 의존성
 │       ├── scripts/
 │       ├── lessons/
 │       └── tests/
@@ -90,40 +90,29 @@ rosdep install --from-paths src --ignore-src --rosdistro humble -y \
 
 ## 3. Python 가상환경과 버전 고정
 
-`--system-site-packages`를 사용하면 시스템에 설치된 `rclpy` 등 ROS Python 패키지와 venv의 MuJoCo·NumPy를 함께 사용할 수 있습니다.
+**현재 작업공간의 `~/icir_mujoco_nav2/.venv-mobile-openarm`만 사용합니다.** 다른 작업공간의 venv를 활성화하거나 연결하지 않습니다.
+
+설치 스크립트는 venv가 없으면 시스템 Python 3.10으로 생성하고, 있으면 해당 venv의 Python 버전과 시스템 패키지 공유 설정을 확인합니다. 이후 저장소의 [requirements-humble-venv.txt](requirements-humble-venv.txt)에 지정된 의존성을 설치하고 import를 검사합니다. 중간에 설치가 실패해도 같은 명령으로 다시 실행할 수 있습니다.
 
 ```bash
 cd ~/icir_mujoco_nav2
-/usr/bin/python3 -m venv --system-site-packages .venv-mobile-openarm
-source .venv-mobile-openarm/bin/activate
-touch .venv-mobile-openarm/COLCON_IGNORE
+source /opt/ros/humble/setup.bash
+bash src/icir_mujoco_nav2/scripts/setup_humble_venv.sh && \
+  source .venv-mobile-openarm/bin/activate
 export PYTHONNOUSERSITE=1
-
-cat > requirements-humble-venv.txt <<'REQ'
-absl-py==2.5.1
-etils==1.13.0
-fsspec==2026.9.0
-glfw==2.10.2
-importlib_resources==7.1.0
-mujoco==3.6.0
-numpy==1.26.4
-opencv-python==4.10.0.84
-pillow==12.3.0
-pycollada==0.9.3
-PyOpenGL==3.1.10
-PyYAML==6.0.3
-python-dateutil==2.9.0.post0
-scipy==1.11.4
-trimesh==4.12.2
-typing_extensions==4.15.0
-REQ
-
-python -m pip install -r requirements-humble-venv.txt
 ```
 
-이 목록은 기존 venv의 `pip freeze --local` 결과에, 기존 환경이 `~/.local`에서 가져오던 `python-dateutil`과 `typing_extensions`의 버전을 추가한 것입니다. ROS와 빌드 도구 등 시스템 패키지의 버전은 포함하지 않습니다. `PYTHONNOUSERSITE=1`은 개인 계정의 패키지가 섞이지 않도록 하며, 새 PC에서는 위 두 의존성도 venv에 설치합니다.
+`--system-site-packages`로 시스템의 ROS Python 패키지를 공유하면서 MuJoCo 등은 현재 작업공간의 venv에 설치합니다. `PYTHONNOUSERSITE=1`은 개인 계정의 `~/.local` 패키지가 섞이지 않도록 합니다. 기존 환경이 사용자 경로에서 가져오던 `python-dateutil`과 `typing_extensions`도 설치 목록에 포함했습니다.
 
-특히 **NumPy 1.26.4와 OpenCV 4.10.0.84를 유지**하세요. 저장소의 `requirements-mobile-openarm.txt`는 일부 버전 범위가 더 넓고, `requirements-lecture.txt`는 LLM·학습 도구까지 포함하므로 이 기본 환경 설치에는 위 목록을 사용합니다. 기본 카메라는 ArUco와 시뮬레이션의 정답 정보를 사용하며, YOLO·PyTorch·OpenAI 패키지는 필요하지 않습니다.
+| 주요 의존성 | 고정 버전 |
+|---|---|
+| MuJoCo | 3.6.0 |
+| NumPy | 1.26.4 |
+| OpenCV (`opencv-python`) | 4.10.0.84 |
+| SciPy | 1.11.4 |
+| trimesh | 4.12.2 |
+
+ROS와 빌드 도구 등 시스템 패키지 버전은 이 목록에 포함하지 않습니다. 저장소의 `requirements-mobile-openarm.txt`는 일부 버전 범위가 더 넓고, `requirements-lecture.txt`는 LLM·학습 도구까지 포함하므로 기본 환경에는 Humble 전용 목록을 사용합니다. 기본 카메라는 ArUco와 시뮬레이션의 정답 정보를 사용하며, YOLO·PyTorch·OpenAI 패키지는 필요하지 않습니다.
 
 설치를 확인합니다.
 
@@ -153,7 +142,8 @@ Python 경로가 `~/icir_mujoco_nav2/.venv-mobile-openarm/bin/python`이고, MuJ
 ```bash
 cd ~/icir_mujoco_nav2
 source /opt/ros/humble/setup.bash
-source .venv-mobile-openarm/bin/activate
+bash src/icir_mujoco_nav2/scripts/setup_humble_venv.sh && \
+  source .venv-mobile-openarm/bin/activate
 export PYTHONNOUSERSITE=1
 
 python -m colcon build --symlink-install --base-paths src \
@@ -171,8 +161,11 @@ ros2 pkg prefix mobile_openarm_bringup
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ~/icir_mujoco_nav2/.venv-mobile-openarm/bin/activate
-source ~/icir_mujoco_nav2/install/local_setup.bash
+
+# 현재 작업공간의 venv 확인 → 없으면 생성 → 의존성 설치/확인
+bash ~/icir_mujoco_nav2/src/icir_mujoco_nav2/scripts/setup_humble_venv.sh && \
+  source ~/icir_mujoco_nav2/.venv-mobile-openarm/bin/activate && \
+  source ~/icir_mujoco_nav2/install/local_setup.bash
 
 export MOBILE_REPO="$HOME/icir_mujoco_nav2/src/icir_mujoco_nav2"
 export PYTHONNOUSERSITE=1
@@ -183,6 +176,8 @@ export MOBILE_OPENARM_CONFIG="$MOBILE_REPO/sim_config.yaml"
 export MOBILE_OPENARM_MODEL_DIR="$HOME/icir_mujoco_nav2/artifacts/mobile_generated"
 cd "$MOBILE_REPO"
 ```
+
+위 환경 준비 명령이 실패하면 launch를 실행하지 말고 설치 오류부터 해결하세요. 스크립트를 다시 실행해도 이미 설치된 버전은 재사용합니다.
 
 모든 터미널에서 domain과 RMW를 동일하게 설정합니다. 이 안내는 기존 PC에 설치된 Fast DDS를 사용하고, `ROS_LOCALHOST_ONLY=1`로 같은 PC 안에서 통신하도록 설정합니다. `MOBILE_OPENARM_CONFIG`는 저장소 안의 설정 파일을 찾도록 지정하며, 생성된 MuJoCo 모델은 작업공간의 `artifacts/`에 저장합니다.
 
@@ -371,6 +366,7 @@ python scripts/check_mobile_openarm.py --nav \
 
 | 증상 | 확인 및 조치 |
 |---|---|
+| venv의 `bin/activate`가 없다고 나옴 | 3절 또는 5절의 `setup_humble_venv.sh` 실행. 현재 작업공간에 venv를 생성하며, 다른 작업공간의 venv로 대체하지 않음 |
 | `ModuleNotFoundError: mujoco` | 5절의 venv를 활성화하고 `python -c "import mujoco"` 확인. `echo "$VIRTUAL_ENV"`가 현재 작업공간을 가리키는지 확인 |
 | `rclpy` 또는 ROS 메시지 import 실패 | `/opt/ros/humble/setup.bash` 적용, Python 3.10과 `--system-site-packages` 사용 여부 확인 |
 | NumPy 관련 바이너리 오류 | venv에서 3절의 버전 목록을 다시 설치하고 인터프리터 확인. 다른 Python으로 빌드한 이력이 있으면 아래 재빌드 절차 사용 |
@@ -378,6 +374,7 @@ python scripts/check_mobile_openarm.py --nav \
 | 토픽이 보이지 않음 | 모든 터미널의 `ROS_DOMAIN_ID`, `ROS_LOCALHOST_ONLY`, `RMW_IMPLEMENTATION`을 5절과 맞추고 `ros2 daemon stop` 실행 후 재조회 |
 | `Source ROS 2 Jazzy first` | 기존 wrapper 대신 이 README의 직접 실행 명령 사용 |
 | `simulator is already running` | 이전 launch 터미널에서 `Ctrl+C`로 종료. lock 파일 삭제만으로 실행 중인 프로세스가 종료되지는 않음 |
+| MuJoCo의 `at least 4 vertices required` | 오류의 mesh가 가리키는 생성 OBJ가 비어 있는지 확인. 현재 코드는 0바이트 캐시를 자동 재생성하고 변환 완료 후 파일을 교체하므로 수정 코드를 반영한 뒤 다시 실행 |
 | 주행 명령에 반응하지 않음 | 팔을 `transport` 자세로 복귀시키고 다른 팔·운반 액션이 실행 중인지 확인 |
 | PickPlace 도킹 실패 | 기본 카메라 활성화, 작업대 마커 시야, `/vision/markers` 확인 |
 | MuJoCo 창·카메라 렌더링 오류 | 우선 로컬 데스크톱에서 실행하고 OpenGL 드라이버 확인. `viewer:=false`만으로 카메라 렌더링까지 꺼지지는 않음 |
@@ -395,6 +392,8 @@ source install/local_setup.bash
 
 ## 검증 범위와 출처
 
-Humble 호환 변경에 대해 이 작업공간에서 ROS 패키지 10개 빌드가 통과했습니다. README 작성 시 위 기본 단위 테스트 17개도 통과했고, launch 인자와 명령 블록의 Bash 문법을 확인했습니다. Python 검사는 기존 venv와 빌드 결과를 사용하되, `~/.local` 전체를 불러오는 대신 위에 명시한 추가 의존성 두 개만 임시 경로에서 제공하여 진행했습니다. 새 PC에서의 전체 설치와 GUI를 포함한 주행·집기·운반 성공은 이 기록에 포함되지 않으며, 각 PC에서 위 기능별 절차로 확인합니다.
+현재 작업공간에 venv가 없는 상태에서 `setup_humble_venv.sh`로 생성·설치하고, 같은 스크립트의 재실행도 확인했습니다. 이 venv로 ROS 패키지 10개를 재빌드했으며 기본 단위 테스트 17개가 통과했습니다. 다른 작업공간의 venv나 `~/.local`의 Python 패키지는 사용하지 않았습니다. launch 인자와 명령 블록의 Bash 문법도 확인했습니다. 새 PC의 시스템 패키지 설치와 GUI를 포함한 주행·집기·운반 성공은 이 기록에 포함되지 않으며, 각 PC에서 위 기능별 절차로 확인합니다.
+
+메시 캐시 복구 수정 후에는 회귀 테스트를 포함한 `test_mobile_openarm.py`의 12개 검사가 통과했습니다. 현재 작업공간의 venv로 GUI 없이 Nav2를 실행해 `bt_navigator`와 `controller_server`의 활성화 및 목표 `(1.0, 0.6, 0.0)` 도달(`status=4`)도 확인했습니다. RViz 화면 렌더링과 집기·운반은 별도 확인 대상입니다.
 
 이 저장소는 [PinkLAB의 모바일 OpenARM MuJoCo 프로젝트](https://github.com/PinkWink/pinklab_mobile_openarm_ros2_mujoco)를 기반으로 합니다. 로봇 모델과 메시의 라이선스·출처는 `src/openarm_description`, `src/vicpinky_description` 내부 고지를 따릅니다.

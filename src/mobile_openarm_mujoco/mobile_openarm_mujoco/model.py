@@ -1,6 +1,7 @@
 """URDF-derived free-base MuJoCo model, encoder odometry, and ray-cast lidar."""
 
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 import hashlib
 import json
 import math
@@ -286,11 +287,20 @@ def build_model(
                 converted = out / f"{path.stem}_{digest}.obj"
                 if (
                     not converted.exists()
+                    or converted.stat().st_size == 0
                     or converted.stat().st_mtime < path.stat().st_mtime
                 ):
                     mesh = trimesh.load(str(path), force="scene").to_geometry()
                     mesh.apply_scale(scale)
-                    mesh.export(str(converted))
+                    # Publish only a complete OBJ. An interrupted export must not
+                    # leave a newer, empty/partial cache that the next run reuses.
+                    with NamedTemporaryFile(dir=out, suffix=".obj", delete=False) as tmp:
+                        temporary = Path(tmp.name)
+                    try:
+                        mesh.export(str(temporary))
+                        temporary.replace(converted)
+                    finally:
+                        temporary.unlink(missing_ok=True)
                 ET.SubElement(
                     asset, "mesh", name=mesh_name, file=str(converted.resolve())
                 )
