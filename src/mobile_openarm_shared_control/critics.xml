@@ -1,0 +1,5 @@
+<library path="human_influence_critic">
+  <class type="mobile_openarm_shared_control::HumanInfluenceCritic" base_class_type="dwb_core::TrajectoryCritic">
+    <description>HI-DWA L1 velocity preference with a bounded release transition.</description>
+  </class>
+</library>

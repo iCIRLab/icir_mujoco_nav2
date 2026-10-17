@@ -16,6 +16,12 @@ def setup(context):
     mode = LaunchConfiguration("mode").perform(context)
     mapfile = LaunchConfiguration("map").perform(context)
     params = str(share / "config/nav2.yaml")
+    shared = LaunchConfiguration("shared_control").perform(context) == "true"
+    shared_config = LaunchConfiguration("shared_control_config").perform(context)
+    if shared and mode != "nav":
+        raise RuntimeError("shared_control requires mode:=nav")
+    if shared and not Path(shared_config).is_file():
+        raise RuntimeError(f"Shared control config does not exist: {shared_config}")
     initial = LaunchConfiguration("initial_pose").perform(context).strip()
     amcl_params = [params]
     if initial:
@@ -40,6 +46,15 @@ def setup(context):
             )
         )
     if mode == "nav":
+        if shared:
+            actions.append(Node(
+                package="mobile_openarm_shared_control", executable="shared_control_node",
+                name="shared_control", parameters=[shared_config, {"use_sim_time": True}],
+                output="screen"))
+            if LaunchConfiguration("joy").perform(context) == "true":
+                actions.append(Node(
+                    package="joy", executable="game_controller_node", name="game_controller_node",
+                    parameters=[shared_config, {"use_sim_time": True}], output="screen"))
         if mapfile:
             if not Path(mapfile).is_file():
                 raise RuntimeError(f"Map does not exist: {mapfile}")
@@ -74,7 +89,8 @@ def setup(context):
                     package=pkg,
                     executable=exe,
                     name=exe,
-                    parameters=[params],
+                    parameters=[params, shared_config] if shared else [params],
+                    remappings=[("cmd_vel", "/shared_control/nav_cmd_vel")] if shared else [],
                     output="screen",
                 )
             )
@@ -105,6 +121,10 @@ def generate_launch_description():
                 "mode", default_value="nav", choices=["drive", "slam", "nav"]
             ),
             DeclareLaunchArgument("map", default_value=""),
+            DeclareLaunchArgument("shared_control", default_value="false", choices=["true", "false"]),
+            DeclareLaunchArgument("joy", default_value="true", choices=["true", "false"]),
+            DeclareLaunchArgument("shared_control_config", default_value=str(
+                Path(get_package_share_directory("mobile_openarm_navigation")) / "config/shared_control.yaml")),
             DeclareLaunchArgument("initial_pose", default_value="", description="AMCL initial pose X,Y,YAW (map frame); empty = nav2.yaml"),
             OpaqueFunction(function=setup),
         ]

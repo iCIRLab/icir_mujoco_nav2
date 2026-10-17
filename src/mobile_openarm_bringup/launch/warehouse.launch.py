@@ -112,6 +112,11 @@ def setup(context):
     rviz = s["rviz"] == "true"
     moveit = LaunchConfiguration("moveit").perform(context) == "true"
     mode = LaunchConfiguration("mode").perform(context)
+    shared = LaunchConfiguration("shared_control").perform(context) == "true"
+    if shared and mode != "nav":
+        raise RuntimeError("shared_control requires mode:=nav")
+    if shared and moveit:
+        raise RuntimeError("Phase 1 shared_control requires moveit:=false (base navigation only)")
     urdf = expand_urdf()
     path = root / "robot.urdf"
     path.write_text(urdf)
@@ -164,6 +169,10 @@ def setup(context):
             command.append("--camera-depth")
         if LaunchConfiguration("camera_segmentation").perform(context) == "true":
             command.append("--camera-segmentation")
+    if shared:
+        # Isolate the simulator from old keyboard/joystick /cmd_vel publishers.
+        command += ["--ros-args", "-r", "/cmd_vel:=/shared_control/cmd_vel",
+                    "-r", "/cmd_vel_stamped:=/shared_control/unused_cmd_vel_stamped"]
     physics = ExecuteProcess(cmd=command, output="screen", name="mobile_openarm_mujoco")
 
     def exited(event, ctx):
@@ -192,6 +201,9 @@ def setup(context):
                     "mode": mode,
                     "map": LaunchConfiguration("map").perform(context),
                     "initial_pose": ",".join(f"{v:.4f}" for v in spawn) if spawn else "",
+                    "shared_control": str(shared).lower(),
+                    "joy": LaunchConfiguration("joy").perform(context),
+                    "shared_control_config": LaunchConfiguration("shared_control_config").perform(context),
                 }.items(),
             )
         )
@@ -274,6 +286,11 @@ def generate_launch_description():
                 ),
             ),
             DeclareLaunchArgument("moveit", default_value="true", choices=["true", "false"]),
+            DeclareLaunchArgument("shared_control", default_value="false", choices=["true", "false"]),
+            DeclareLaunchArgument("joy", default_value="true", choices=["true", "false"],
+                                  description="Start game_controller_node in shared-control mode"),
+            DeclareLaunchArgument("shared_control_config", default_value=str(
+                Path(get_package_share_directory("mobile_openarm_navigation")) / "config/shared_control.yaml")),
             DeclareLaunchArgument(
                 "config",
                 default_value="",
